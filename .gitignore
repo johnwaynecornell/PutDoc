@@ -1,0 +1,10 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.swp
+*.tmp
+/.idea/
+/PutDocDirectory/
+/src/PutDoc/wwwroot/lib/

@@ -1,0 +1,26 @@
+@namespace PutDoc.Components
+@inject PutDocState State
+
+<h3 class="font-semibold mb-2">HTML Editor</h3>
+
+@if (State.CurrentSnippet() is Snippet s)
+{
+    <textarea class="w-full" style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
+              @bind="s.Html"
+              @bind:after="OnAfterChange" />
+    <div style="font-size: .8rem; color: #666; margin-top: .5rem;">
+        • Saved through AngleSoft filter (scripts/inline handlers stripped in sample).
+    </div>
+}
+else
+{
+    <p style="color:#666;font-style:italic">Select a snippet from WorkPane to edit.</p>
+}
+
+@code {
+    async void OnAfterChange()
+    {
+        await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "");
+        StateHasChanged();
+    }
+}

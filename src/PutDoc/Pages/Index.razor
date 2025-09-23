@@ -1,0 +1,80 @@
+@page "/"
+@using PutDoc.Components
+@using Microsoft.AspNetCore.Components.Web   
+
+@inject PutDocState State
+<PageTitle>PutDoc</PageTitle>
+
+@if (State.Doc?.Leafs?.Count == 0)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <div class="putdoc-layout">
+        <aside class="index">
+            <IndexPanel />
+        </aside>
+
+        <section class="right">
+            <div class="editor">
+                <HtmlEditor />
+            </div>
+            <div class="workpane">
+                <WorkPane />
+            </div>
+        </section>
+    </div>
+}
+
+// Pages/Index.razor
+@code {
+    string? loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            await State.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+        }
+    }
+}
+@if (!string.IsNullOrEmpty(loadError))
+{
+    <div style="color:#b00; padding:.75rem; border:1px solid #f2c; background:#fee;">
+        Failed to load .putDoc: @loadError
+    </div>
+}
+
+<style>
+  /* 2 columns: left index + right stack */
+  .putdoc-layout {
+    height: 100%;                                   /* fill Main’s area */
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);    /* prevent overflow pushing new rows */
+    gap: 16px;
+  }
+
+  .index {
+    border: 1px solid #ddd; border-radius: 8px; padding: 8px;
+    overflow: auto; min-height: 0;                  /* allow proper scrolling */
+  }
+
+  .right {
+    display: grid;
+    grid-template-rows: 300px minmax(0, 1fr);       /* editor fixed; workpane fills */
+    gap: 16px; min-height: 0;
+  }
+
+  .editor, .workpane {
+    border: 1px solid #ddd; border-radius: 8px; padding: 8px;
+    overflow: auto; min-height: 0;
+  }
+
+  /* Optional: make editor resizable while keeping bottom pane adaptive */
+  .editor { resize: vertical; overflow: auto; }
+</style>

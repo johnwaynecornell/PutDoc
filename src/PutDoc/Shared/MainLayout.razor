@@ -1,0 +1,32 @@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <header class="top-row">
+        <h1>PutDoc</h1>
+    </header>
+    <main class="main">
+        @Body
+    </main>
+</div>
+
+<style>
+  html, body, .page { height: 100%; }
+  body { margin: 0; }
+  .page {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .top-row {
+    flex: 0 0 56px;                 /* fixed header height */
+    display: flex;
+    align-items: center;
+    padding: .75rem 1rem;
+    border-bottom: 1px solid #ddd;
+  }
+  .top-row h1 { margin: 0; font-size: 1.25rem; }
+  .main {
+    flex: 1 1 auto;                 /* fill the rest */
+    min-height: 0;                  /* IMPORTANT: allow children to overflow-scroll */
+  }
+</style>

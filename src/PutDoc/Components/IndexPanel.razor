@@ -1,0 +1,31 @@
+@namespace PutDoc.Components
+@inject PutDocState State
+
+<h3 class="font-semibold mb-2">Index</h3>
+
+@code {
+    Leaf? Root => State.Doc.Leafs.TryGetValue(State.Doc.RootLeafId, out var l) ? l : null;
+}
+
+@if (Root is not null)
+{
+    <div class="text-sm">
+        <div>Root: <strong>@Root.Title</strong></div>
+        <ul class="mt-2">
+            @foreach (var pid in Root.PageIds)
+            {
+                if (!State.Doc.Pages.TryGetValue(pid, out var p)) continue;
+                <li class="ml-2">
+                    <button class="underline"
+                            @onclick="() => { State.SelectedPageId = pid; State.SelectedSnippetId = State.CurrentPage()?.Snippets.FirstOrDefault()?.Id; }">
+                        @p.Title
+                    </button>
+                </li>
+            }
+        </ul>
+    </div>
+}
+else
+{
+    <em>Missing root leaf.</em>
+}

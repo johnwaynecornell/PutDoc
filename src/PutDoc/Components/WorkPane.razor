@@ -1,0 +1,54 @@
+@namespace PutDoc.Components
+@inject PutDocState State
+@inject IJSRuntime JS
+
+<h3 class="font-semibold mb-2">WorkPane — Snippets in Page</h3>
+
+@if (State.CurrentPage() is { } _page)
+{
+    <div class="mb-2">
+        <strong>Page:</strong> @_page.Title
+    </div>
+
+    @foreach (var snip in _page.Snippets)
+    {
+        var active = State.SelectedSnippetId == snip.Id;
+        <div style="border:1px solid #ddd; border-radius: .5rem; margin-bottom: .75rem;">
+            <div style="padding: .75rem; background: #f8f8f8;">
+                <div class="prose max-w-none">
+                    @((MarkupString)snip.Html)
+                </div>
+            </div>
+            <div style="padding:.5rem; display:flex; gap:.5rem; border-top:1px solid #eee;">
+                <button class="btn" @onclick="() => State.AddSnippetBelow(snip.Id)">＋</button>
+                <button class="btn" @onclick="() => State.DeleteSnippet(snip.Id)">Delete</button>
+                <button class="btn" @onclick="() => State.CloneSnippet(snip.Id)">Clone</button>
+                <button class="btn" @onclick="() => CopyToClipboard(snip.Html)">Copy</button>
+                <button class="btn" @onclick="() => State.MoveSnippet(snip.Id, -1)">↑</button>
+                <button class="btn" @onclick="() => State.MoveSnippet(snip.Id, +1)">↓</button>
+                <button class="btn @(active ? "font-bold" : "")" @onclick="() => State.SelectedSnippetId = snip.Id">Edit</button>
+            </div>
+        </div>
+    }
+
+    <div>
+        <button class="btn" @onclick="() => State.AddSnippetBelow(_page.Snippets.LastOrDefault()?.Id ?? Guid.Empty)">＋ Add snippet</button>
+    </div>
+}
+else
+{
+    <p style="color:#666;font-style:italic">Select a page from Index.</p>
+}
+
+<style>
+.btn { padding: .25rem .5rem; border:1px solid #ccc; border-radius: .375rem; background:#fff; cursor:pointer; }
+.btn:hover { background:#f4f4f4; }
+.font-bold { font-weight: 700; }
+</style>
+
+@code {
+    async Task CopyToClipboard(string html)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", html ?? "");
+    }
+}
