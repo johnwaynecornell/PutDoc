@@ -72,7 +72,8 @@ else
         if (_isFragmentMode)
         {
             // fragment mode …
-            editorText = State.Selection.Html ?? "";
+            editorText = HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "").Result;
+
             _currentSnippet = State.CurrentPage()?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
             _lastSeenSnippetId = _currentSnippet?.Id;
             _saveState = SaveState.Idle;
@@ -86,12 +87,12 @@ else
 // If we *just left* fragment mode, always refresh editorText
         if (wasFragment)
         {
-            editorText = _currentSnippet?.Html ?? "";
+            editorText = HtmlPuid.StripPuidsAsync(_currentSnippet?.Html ?? "").Result;
             _saveState = SaveState.Idle;
         }
         else if (_currentSnippet is not null && editorText != _currentSnippet.Html)
         {
-            editorText = _currentSnippet.Html ?? "";
+            editorText = HtmlPuid.StripPuidsAsync(_currentSnippet.Html ?? "").Result;
         }
     }
 
@@ -105,31 +106,29 @@ else
 
     private async Task SaveAsync()
     {
-        _saveState = SaveState.Saving;
-        StateHasChanged();
+        _saveState = SaveState.Saving; StateHasChanged();
 
-        // Components/HtmlEditor.razor (SaveAsync)
         if (_isFragmentMode && State.Selection.IsActive)
         {
             var page = State.CurrentPage();
             var snip = page?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
             if (snip is not null)
             {
+                // Replace by puid, then EnsurePuids done inside SetSnippetHtml
                 var newHtml = await HtmlTransformService.ReplaceFragmentByPuidAsync(
-                    snip.Html ?? "", State.Selection.Selector /* now store puid here */, editorText);
-
+                    snip.Html ?? "", State.Selection.Selector /* puid */, editorText);
                 if (newHtml is not null)
-                    await State.SetSnippetHtml(newHtml);
+                    await State.SetSnippetHtml(newHtml, isRawFromEditor:false);
             }
-            // refresh selection model so the editor shows the latest fragment
+            // refresh the fragment model (still stripped for viewing)
             State.BeginSelectionEdit(State.Selection.SnippetId, State.Selection.Selector, editorText);
-        } else
+        }
+        else
         {
-            await State.SetSnippetHtml(editorText);
+            await State.SetSnippetHtml(editorText, isRawFromEditor:true);
         }
 
-        _saveState = SaveState.Saved;
-        StateHasChanged();
+        _saveState = SaveState.Saved; StateHasChanged();
     }
 
     private void CancelFragment()

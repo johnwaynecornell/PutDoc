@@ -1,4 +1,5 @@
 // PutDoc.Services/PutDocState.cs
+// PutDoc.Services/PutDocState.cs
 namespace PutDoc.Services;
 
 public class PutDocState
@@ -17,6 +18,7 @@ public class PutDocState
     // NEW: select snippet + notify others to re-render
     public void SelectSnippet(Guid? id)
     {
+        CancelSelectionEdit();
         SelectedSnippetId = id;
         Notify();
     }
@@ -32,14 +34,19 @@ public class PutDocState
     {
         _store = store; _filter = filter;
     }
-
     
     public async Task LoadAsync()
     {
         Doc = await _store.LoadAsync();
+
+        // Ensure every snippet has puids (server is source of truth)
+        foreach (var p in Doc.Pages.Values)
+            for (int i = 0; i < p.Snippets.Count; i++)
+                p.Snippets[i].Html = await HtmlPuid.EnsurePuidsAsync(p.Snippets[i].Html ?? "");
+
         SelectedPageId ??= Doc.Pages.Keys.FirstOrDefault();
         SelectedSnippetId ??= CurrentPage()?.Snippets.FirstOrDefault()?.Id;
-        Notify();                      // notify after load too
+        Notify();
     }
     
     public Page? CurrentPage() => SelectedPageId is Guid id && Doc.Pages.TryGetValue(id, out var p) ? p : null;
@@ -51,14 +58,23 @@ public class PutDocState
         Notify();
     }
 
-    public async Task SetSnippetHtml(string html)
+    public async Task SetSnippetHtml(string html, bool isRawFromEditor = true)
     {
         var s = CurrentSnippet();
         if (s is null) return;
-        s.Html = _filter.Filter(html);
-        await SaveAsync();             // SaveAsync will Notify()
-    }
 
+        // 1) sanitize editor text (AngleSoft)
+        var cleaned = _filter.Filter(html);
+
+        // 2) strip puids in case the editor text contained any (keeps editors clean)
+        if (isRawFromEditor) cleaned = await HtmlPuid.StripPuidsAsync(cleaned);
+
+        // 3) re-add puids for runtime reliability
+        cleaned = await HtmlPuid.EnsurePuidsAsync(cleaned);
+
+        s.Html = cleaned;
+        await SaveAsync(); // SaveAsync -> Notify()
+    }
     public async Task AddSnippetBelow(Guid? afterId = null)
     {
         var page = CurrentPage(); if (page is null) return;

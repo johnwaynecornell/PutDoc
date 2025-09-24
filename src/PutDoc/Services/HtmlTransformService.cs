@@ -1,16 +1,29 @@
 // Services/HtmlTransformService.cs
 using AngleSharp;
 using AngleSharp.Dom;
+using AngleSharp.Html; // for .ToHtml()
 
 namespace PutDoc.Services;
-
+//pc06d9280230f4fe6b9480035d0726cd6
 public static class HtmlTransformService
 {
+    public static string SerializeFragment(INode root)
+    {
+        // Preserves text nodes, comments, and elements—plus their whitespace.
+        return string.Concat(root.ChildNodes.Select(n => n.ToHtml()));
+    }
+    
+    
     static readonly IBrowsingContext Ctx =
         BrowsingContext.New(Configuration.Default.WithDefaultLoader());
     
-     static IElement? FindByPuid(INode root, string puid) =>
-        (root as IElement)?.QuerySelector($"[sdata-puid=\"{puid}\"]");
+    static IElement? FindByPuid(INode root, string puid)
+    {
+        if (root is null || string.IsNullOrWhiteSpace(puid)) return null;
+        // Note: attribute name is "data-puid" (no leading 's')
+        return (root as IParentNode)?
+            .QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+    }
 
     static IElement? FindByPath(IElement root, string path) =>
         string.IsNullOrWhiteSpace(path) ? null : root.QuerySelector(path);
@@ -105,7 +118,7 @@ public static class HtmlTransformService
             // If we attached puid via path only, persist that so next time PUID lookup works
             if (FindByPuid(root, puid) is not null && !string.IsNullOrWhiteSpace(path))
             {
-                var justPersistPuids = string.Concat(root.Children.Select(c => c.OuterHtml));
+                var justPersistPuids = SerializeFragment(root);
                 await state.SetSnippetHtml(justPersistPuids);
                 state.SelectSnippet(snippetId);
             }
@@ -114,7 +127,7 @@ public static class HtmlTransformService
 
         // After structural changes, ensure uniqueness and persist
         ReassignDuplicatePuids(root);
-        var newHtml = string.Concat(root.Children.Select(c => c.OuterHtml));
+        var newHtml = SerializeFragment(root);
         await state.SetSnippetHtml(newHtml);
         state.SelectSnippet(snippetId);
         return true;
@@ -127,9 +140,9 @@ public static class HtmlTransformService
         var target = FindByPuid(root, puid);
         if (target is null) return null;
         target.OuterHtml = newOuterHtml ?? "";
-        foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
-            EnsurePuid(el);
-        ReassignDuplicatePuids(root);
-        return string.Concat(root.Children.Select(c => c.OuterHtml));
+        //foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
+        //    EnsurePuid(el);
+        //ReassignDuplicatePuids(root);
+        return SerializeFragment(root);
     }
 }
