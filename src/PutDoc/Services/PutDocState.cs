@@ -265,4 +265,29 @@ public class PutDocState
         Notify();
         return page.Id;
     }
+    
+    public async Task<Guid> AddSnippetToPage(Guid pageId, string html)
+    {
+        if (!Doc.Pages.TryGetValue(pageId, out var page)) return Guid.Empty;
+        var cleaned = _filter.Filter(html);
+        cleaned = await HtmlPuid.StripPuidsAsync(cleaned);
+        cleaned = await HtmlPuid.EnsurePuidsAsync(cleaned);
+
+        var snip = new Snippet { Html = cleaned };
+        page.Snippets.Add(snip);
+
+        SelectedPageId = pageId;
+        SelectedSnippetId = snip.Id;
+
+        await SaveAsync();
+        Notify();
+        return snip.Id;
+    }
+
+    public async Task<Guid> PasteSnippetIntoSelectedPage(string html)
+    {
+        if (SelectedPageId is not Guid pid) return Guid.Empty;
+        return await AddSnippetToPage(pid, html);
+    }
+
 }
