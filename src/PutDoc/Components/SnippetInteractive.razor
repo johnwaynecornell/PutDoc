@@ -17,17 +17,15 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         _selfRef ??= DotNetObjectReference.Create(this);
-        // ⚠️ re-run enhancer every render (idempotent via "already has toolbar" check)
         await JS.InvokeVoidAsync("putdocEnhance", _root, _selfRef);
     }
 
-    // Components/SnippetInteractive.razor
     [JSInvokable]
     public async Task OnDomAction(string action, string puid)
     {
         await HtmlTransformService.ApplyAsync(State, SnippetId, action, puid);
+        // ApplyAsync saves/Notifies; other panes refresh via State.Changed subscription
     }
-
 
     public void Dispose() => _selfRef?.Dispose();
 }

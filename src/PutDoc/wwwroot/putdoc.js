@@ -1,6 +1,6 @@
 // wwwroot/putdoc.js
 (function () {
-    function uuid() { return 'p' + crypto.randomUUID().replace(/-/g,''); }
+    function uuid() { return 'p' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'') : (Date.now()+Math.random()).toString(36)); }
 
     function ensurePuid(el) {
         if (!el.dataset.puid) el.dataset.puid = uuid();
@@ -8,68 +8,73 @@
     }
 
     function injectToolbar(el, actions) {
-        // remove old toolbar if any (idempotent)
+        // Remove any old toolbar (idempotent)
         const old = el.querySelector(':scope > .putdoc-toolbar');
         if (old) old.remove();
 
         const bar = document.createElement('div');
         bar.className = 'putdoc-toolbar';
         bar.style.cssText = 'position:absolute; top:6px; right:6px; display:flex; gap:6px; z-index:5;';
-        actions.forEach(a => {
+        for (const a of actions) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.textContent = a.label;
-            btn.dataset.action = a.action;
             btn.className = 'putdoc-btn';
+            btn.dataset.action = a.action;
             bar.appendChild(btn);
-        });
-        el.style.position = el.style.position || 'relative';
+        }
+        if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
         el.prepend(bar);
     }
 
     window.putdocEnhance = function (container, dotnetRef) {
         if (!container) return;
 
-        // Mark root once
-        container.dataset.putdocRoot = "1";
+        // Mark root
+        container.dataset.putdocRoot = '1';
 
-        // Decorate targets and ensure stable IDs (data-puid)
+        // Always (re)decorate actionable elements
         const targets = container.querySelectorAll('.slf-card, .slf-brick, .prompt_area, pre');
-        targets.forEach(el => {
+        for (const el of targets) {
             ensurePuid(el);
-            let actions = [];
             if (el.tagName.toLowerCase() === 'pre') {
-                actions = [{ label:'Copy', action:'copy-code' }];
+                injectToolbar(el, [{ label: 'Copy', action: 'copy-code' }]);
             } else {
-                actions = [
-                    { label:'Edit',  action:'edit' },
-                    { label:'Clone', action:'clone' },
-                    { label:'Del',   action:'delete' },
-                    { label:'↑',     action:'move-up' },
-                    { label:'↓',     action:'move-down' },
-                ];
+                injectToolbar(el, [
+                    { label: 'Edit',  action: 'edit' },
+                    { label: 'Clone', action: 'clone' },
+                    { label: 'Del',   action: 'delete' },
+                    { label: '↑',     action: 'move-up' },
+                    { label: '↓',     action: 'move-down' },
+                ]);
             }
-            injectToolbar(el, actions);
-        });
+        }
 
-        // Bind exactly once
-        if (container.dataset.putdocBound === '1') return;
-        container.dataset.putdocBound = '1';
+        // Bind the click handler exactly once per container
+        if (container._putdocBound) return;
+        container._putdocBound = true;
 
         container.addEventListener('click', async (ev) => {
-            const btn = ev.target.closest('.putdoc-btn');
+            const btn = ev.target && ev.target.closest && ev.target.closest('.putdoc-btn');
             if (!btn) return;
+
             const host = btn.closest('.slf-card, .slf-brick, .prompt_area, pre');
             if (!host) return;
 
             const action = btn.dataset.action;
+            const puid = ensurePuid(host);
+
             if (action === 'copy-code' && host.tagName.toLowerCase() === 'pre') {
                 const code = host.querySelector('code');
                 if (code) await navigator.clipboard.writeText(code.innerText);
                 return;
             }
-            const puid = host.dataset.puid || ensurePuid(host);
-            await dotnetRef.invokeMethodAsync('OnDomAction', action, puid);
+
+            try {
+                await dotnetRef.invokeMethodAsync('OnDomAction', action, puid);
+            } catch (e) {
+                console.error('putdoc invoke failed', e);
+            }
         }, { passive: true });
     };
 })();

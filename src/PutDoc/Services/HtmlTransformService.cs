@@ -51,6 +51,11 @@ public static class HtmlTransformService
 
     public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid)
     {
+        Console.WriteLine(action + " "+puid);
+        
+        
+        
+        
         var page = state.CurrentPage(); if (page is null) return false;
         var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return false;
 
