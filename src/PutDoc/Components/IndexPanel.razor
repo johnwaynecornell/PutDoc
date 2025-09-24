@@ -1,28 +1,13 @@
 @namespace PutDoc.Components
-@inject PutDocState State
+@inject PutDoc.Services.PutDocState State
+@inject IJSRuntime JS
 
 <h3 class="font-semibold mb-2">Index</h3>
-
-@code {
-    Leaf? Root => State.Doc.Leafs.TryGetValue(State.Doc.RootLeafId, out var l) ? l : null;
-}
 
 @if (Root is not null)
 {
     <div class="text-sm">
-        <div>Root: <strong>@Root.Title</strong></div>
-        <ul class="mt-2">
-            @foreach (var pid in Root.PageIds)
-            {
-                if (!State.Doc.Pages.TryGetValue(pid, out var p)) continue;
-                <li class="ml-2">
-                    <button class="underline"
-                            @onclick="() => { State.SelectedPageId = pid; State.SelectedSnippetId = State.CurrentPage()?.Snippets.FirstOrDefault()?.Id; }">
-                        @p.Title
-                    </button>
-                </li>
-            }
-        </ul>
+        @RenderLeaf(Root)
     </div>
 }
 else
@@ -31,19 +16,81 @@ else
 }
 
 @code {
-    protected override void OnInitialized()
+    Leaf? Root => State.Doc.Leafs.TryGetValue(State.Doc.RootLeafId, out var l) ? l : null;
+
+    RenderFragment RenderLeaf(Leaf leaf) => __builder =>
     {
-        State.Changed += OnStateChanged;
+        <details open>
+            <summary>
+                <span>📁 </span>
+                <input value="@leaf.Title" @onchange="(e => RenameLeaf(leaf.Id, e.Value?.ToString() ?? leaf.Title))"
+                       style="border:0;border-bottom:1px dashed #ccc;outline:none;background:transparent;width:14rem;" />
+                <button class="btn" @onclick="() => NewPage(leaf.Id)">+ Page</button>
+                <button class="btn" @onclick="() => NewLeaf(leaf.Id)">+ Leaf</button>
+                <button class="btn" @onclick="() => PasteIntoLeaf(leaf.Id)">Paste HTML</button>
+            </summary>
+
+            @if (leaf.PageIds?.Count > 0)
+            {
+                <ul style="margin-left:1rem;">
+                    @foreach (var pid in leaf.PageIds)
+                    {
+                        if (!State.Doc.Pages.TryGetValue(pid, out var p)) continue;
+                        var active = State.SelectedPageId == pid;
+                        <li style="margin:.25rem 0;">
+                            <button class="link @(active ? "active" : null)"
+                                    @onclick="() => State.SelectPage(pid)">
+                                📄 @p.Title
+                            </button>
+                            <button class="btn" title="Rename"
+                                    @onclick="() => PromptRenamePage(pid, p.Title)">✎</button>
+                            <button class="btn" title="Up" @onclick="() => State.MovePage(leaf.Id, pid, -1)">↑</button>
+                            <button class="btn" title="Down" @onclick="() => State.MovePage(leaf.Id, pid, +1)">↓</button>
+                            <button class="btn" title="Clone" @onclick="() => State.ClonePage(leaf.Id, pid)">⧉</button>
+                            <button class="btn" title="Delete" @onclick="() => State.DeletePage(leaf.Id, pid)">🗑</button>
+                        </li>
+                    }
+                </ul>
+            }
+
+            @if (leaf.ChildLeafIds?.Count > 0)
+            {
+                <div style="margin-left:1rem;">
+                    @foreach (var cid in leaf.ChildLeafIds)
+                    {
+                        if (!State.Doc.Leafs.TryGetValue(cid, out var child)) continue;
+                        @RenderLeaf(child)
+                    }
+                </div>
+            }
+        </details>;
+    };
+
+    async Task NewLeaf(Guid parentId) => await State.CreateLeaf(parentId);
+    async Task NewPage(Guid leafId) => await State.CreatePage(leafId);
+
+    async Task PasteIntoLeaf(Guid leafId)
+    {
+        var html = await JS.InvokeAsync<string>("putdoc.readClipboardText");
+        if (!string.IsNullOrWhiteSpace(html))
+            await State.PasteSnippetIntoLeaf(leafId, html);
     }
 
-    void OnStateChanged()
-    {
-        // marshal back to UI thread
-        _ = InvokeAsync(StateHasChanged);
-    }
+    async Task RenameLeaf(Guid leafId, string title) => await State.RenameLeaf(leafId, title);
 
-    public void Dispose()
+    async Task PromptRenamePage(Guid pageId, string current)
     {
-        State.Changed -= OnStateChanged;
+        // quick-and-dirty prompt via JS (replace with a modal if you like)
+        var title = await JS.InvokeAsync<string>("prompt", $"Rename page:", current);
+        if (!string.IsNullOrWhiteSpace(title))
+            await State.RenamePage(pageId, title);
     }
 }
+
+<style>
+.btn { padding:.1rem .35rem; border:1px solid #ccc; border-radius:.375rem; background:#fff; cursor:pointer; margin-left:.25rem; }
+.btn:hover { background:#f4f4f4; }
+.link { background:none; border:0; text-decoration:underline; cursor:pointer; }
+.link.active { font-weight:700; text-decoration:none; }
+summary { display:flex; align-items:center; gap:.4rem; }
+</style>

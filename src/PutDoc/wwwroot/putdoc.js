@@ -70,4 +70,18 @@
             } catch (e) { console.error('putdoc invoke failed', e); }
         }, { passive: true });
     };
+
+    window.putdoc = window.putdoc || {};
+    window.putdoc.readClipboardText = async function () {
+        try {
+            // Prefer the modern async clipboard API
+            if (navigator.clipboard && navigator.clipboard.readText) {
+                return await navigator.clipboard.readText();
+            }
+        } catch (e) {
+            console.warn('Clipboard readText failed', e);
+        }
+        return '';
+    };
+
 })();
