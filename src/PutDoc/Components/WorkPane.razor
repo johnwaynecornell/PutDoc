@@ -16,7 +16,7 @@
         <div style="border:1px solid #ddd; border-radius: .5rem; margin-bottom: .75rem;">
             <div style="padding: .75rem; background: #f8f8f8;">
                 <div class="prose max-w-none">
-                    @((MarkupString)snip.Html)
+                    <SnippetInteractive Html="@snip.Html" SnippetId="@snip.Id" />
                 </div>
             </div>
             <div style="padding:.5rem; display:flex; gap:.5rem; border-top:1px solid #eee;">
@@ -26,7 +26,37 @@
                 <button class="btn" @onclick="() => CopyToClipboard(snip.Html)">Copy</button>
                 <button class="btn" @onclick="() => State.MoveSnippet(snip.Id, -1)">↑</button>
                 <button class="btn" @onclick="() => State.MoveSnippet(snip.Id, +1)">↓</button>
-                <button class="btn @(active ? "font-bold" : "")" @onclick="() => State.SelectedSnippetId = snip.Id">Edit</button>
+                <button class="btn @(active ? "font-bold" : "")"
+                        @onclick="() => State.SelectSnippet(snip.Id)">
+                    Edit
+                </button>
+                
+                <button class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Card)">+ slf-card</button>
+                <button class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Brick)">+ slf-brick</button>
+                <button class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Prompt)">+ prompt</button>
+                
+                @code {
+                    enum TemplateKind { Card, Brick, Prompt }
+
+                    async Task InsertTemplate(Guid snippetId, TemplateKind kind)
+                    {
+                        var page = State.CurrentPage(); if (page is null) return;
+                        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return;
+
+                        var html = snip.Html ?? "";
+                        var add = kind switch
+                        {
+                            TemplateKind.Card => """<div class="slf-card"><h3>Title</h3><p><b>Purpose</b>: <span>…</span></p><div><b>Content</b>: <div>…</div></div></div>""",
+                            TemplateKind.Brick => """<div class="slf-brick"><h3>BRICK</h3><p><b>Definition</b>: <span>…</span></p><div><b>Example</b>: <div>…</div></div></div>""",
+                            TemplateKind.Prompt => """<div class="prompt_area"><h3>Prompt</h3><p>…</p></div>""",
+                            _ => ""
+                        };
+
+                        await State.SetSnippetHtml(html + "\n" + add);
+                        State.SelectSnippet(snippetId);
+                    }
+// ... existing code ...
+                }
             </div>
         </div>
     }
@@ -50,5 +80,23 @@ else
     async Task CopyToClipboard(string html)
     {
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", html ?? "");
+    }
+}
+
+@code {
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+    }
+
+    void OnStateChanged()
+    {
+        // marshal back to UI thread
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        State.Changed -= OnStateChanged;
     }
 }

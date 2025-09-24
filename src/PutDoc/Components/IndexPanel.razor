@@ -29,3 +29,21 @@ else
 {
     <em>Missing root leaf.</em>
 }
+
+@code {
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+    }
+
+    void OnStateChanged()
+    {
+        // marshal back to UI thread
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        State.Changed -= OnStateChanged;
+    }
+}

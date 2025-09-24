@@ -1,15 +1,25 @@
 @namespace PutDoc.Components
-@inject PutDocState State
+@inject PutDoc.Services.PutDocState State
+@using PutDoc.Services
 
 <h3 class="font-semibold mb-2">HTML Editor</h3>
 
-@if (State.CurrentSnippet() is Snippet s)
+@if (_isFragmentMode)
 {
-    <textarea class="w-full" style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
-              @bind="s.Html"
-              @bind:after="OnAfterChange" />
-    <div style="font-size: .8rem; color: #666; margin-top: .5rem;">
-        • Saved through AngleSoft filter (scripts/inline handlers stripped in sample).
+    <div style="font-size:.85rem; color:#444; margin-bottom:.25rem;">
+        Editing fragment in snippet <code>@State.Selection.SnippetId</code>
+        <button class="btn" @onclick="CancelFragment" style="margin-left:.5rem;">Exit fragment</button>
+    </div>
+}
+
+@if (_currentSnippet is not null || _isFragmentMode)
+{
+    <textarea class="w-full"
+              style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
+              value="@editorText"
+              @oninput="OnInput" />
+    <div style="font-size:.8rem; color:#666; margin-top:.5rem;">
+        @_statusText • Saved through AngleSoft filter.
     </div>
 }
 else
@@ -18,9 +28,119 @@ else
 }
 
 @code {
-    async void OnAfterChange()
+    private string editorText = "";
+    private Snippet? _currentSnippet;
+    private Guid? _lastSeenSnippetId;
+    private bool _isFragmentMode;
+
+    private System.Timers.Timer? _debounceTimer;
+    private const int DebounceMs = 600;
+
+    private enum SaveState { Idle, Typing, Saving, Saved }
+    private SaveState _saveState = SaveState.Idle;
+    private string _statusText => _saveState switch
     {
-        await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "");
+        SaveState.Typing => "Typing…",
+        SaveState.Saving => "Saving…",
+        SaveState.Saved  => "Saved",
+        _                => ""
+    };
+
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+        _debounceTimer = new System.Timers.Timer(DebounceMs) { AutoReset = false };
+        _debounceTimer.Elapsed += async (_, __) =>
+        {
+            await InvokeAsync(SaveAsync);
+        };
+        SyncFromState();
+    }
+
+    private void OnStateChanged()
+    {
+        SyncFromState();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncFromState()
+    {
+        // Components/HtmlEditor.razor (inside SyncFromState)
+        var wasFragment = _isFragmentMode;
+        _isFragmentMode = State.Selection.IsActive;
+
+        if (_isFragmentMode)
+        {
+            // fragment mode …
+            editorText = State.Selection.Html ?? "";
+            _currentSnippet = State.CurrentPage()?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
+            _lastSeenSnippetId = _currentSnippet?.Id;
+            _saveState = SaveState.Idle;
+            return;
+        }
+
+// Now in full-snippet mode
+        _currentSnippet = State.CurrentSnippet();
+        _lastSeenSnippetId = _currentSnippet?.Id;
+
+// If we *just left* fragment mode, always refresh editorText
+        if (wasFragment)
+        {
+            editorText = _currentSnippet?.Html ?? "";
+            _saveState = SaveState.Idle;
+        }
+        else if (_currentSnippet is not null && editorText != _currentSnippet.Html)
+        {
+            editorText = _currentSnippet.Html ?? "";
+        }
+    }
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        editorText = e.Value?.ToString() ?? "";
+        _saveState = SaveState.Typing;
+        _debounceTimer?.Stop();
+        _debounceTimer?.Start();
+    }
+
+    private async Task SaveAsync()
+    {
+        _saveState = SaveState.Saving;
         StateHasChanged();
+
+        // Components/HtmlEditor.razor (SaveAsync)
+        if (_isFragmentMode && State.Selection.IsActive)
+        {
+            var page = State.CurrentPage();
+            var snip = page?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
+            if (snip is not null)
+            {
+                var newHtml = await HtmlTransformService.ReplaceFragmentByPuidAsync(
+                    snip.Html ?? "", State.Selection.Selector /* now store puid here */, editorText);
+
+                if (newHtml is not null)
+                    await State.SetSnippetHtml(newHtml);
+            }
+            // refresh selection model so the editor shows the latest fragment
+            State.BeginSelectionEdit(State.Selection.SnippetId, State.Selection.Selector, editorText);
+        } else
+        {
+            await State.SetSnippetHtml(editorText);
+        }
+
+        _saveState = SaveState.Saved;
+        StateHasChanged();
+    }
+
+    private void CancelFragment()
+    {
+        State.CancelSelectionEdit();
+    }
+
+    public void Dispose()
+    {
+        State.Changed -= OnStateChanged;
+        _debounceTimer?.Stop();
+        _debounceTimer?.Dispose();
     }
 }
