@@ -8,6 +8,12 @@ public static class HtmlTransformService
 {
     static readonly IBrowsingContext Ctx =
         BrowsingContext.New(Configuration.Default.WithDefaultLoader());
+    
+     static IElement? FindByPuid(INode root, string puid) =>
+        (root as IElement)?.QuerySelector($"[sdata-puid=\"{puid}\"]");
+
+    static IElement? FindByPath(IElement root, string path) =>
+        string.IsNullOrWhiteSpace(path) ? null : root.QuerySelector(path);
 
     static void EnsurePuid(IElement el)
     {
@@ -30,43 +36,31 @@ public static class HtmlTransformService
         }
     }
 
-    static IElement? FindByPuid(INode root, string puid) =>
-        (root as IElement)?.QuerySelector($"[data-puid=\"{puid}\"]");
-
-    public static async Task<string?> ReplaceFragmentByPuidAsync(string html, string puid, string newOuterHtml)
+    public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid, string? path = null)
     {
-        var doc = await Ctx.OpenAsync(req => req.Content(html ?? ""));
-        var root = doc.Body!;
-        var target = FindByPuid(root, puid);
-        if (target is null) return null;
-
-        // Replace and ensure uniqueness of puids (for clones)
-        target.OuterHtml = newOuterHtml ?? "";
-        foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
-            EnsurePuid(el);
-        ReassignDuplicatePuids(root);
-
-        return string.Concat(root.Children.Select(c => c.OuterHtml));
-    }
-
-    public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid)
-    {
-        Console.WriteLine(action + " "+puid);
-        
-        
-        
-        
         var page = state.CurrentPage(); if (page is null) return false;
         var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return false;
 
         var doc = await Ctx.OpenAsync(req => req.Content(snip.Html ?? ""));
         var root = doc.Body!;
 
-        // Ensure every actionable element has a puid
+        // Ensure actionable elements at least have *some* puid (for future)
         foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
             EnsurePuid(el);
 
         var target = FindByPuid(root, puid);
+
+        // Fallback: resolve by cssPath and attach the incoming puid so future actions hit by puid.
+        if (target is null && !string.IsNullOrWhiteSpace(path))
+        {
+            var byPath = FindByPath(root, path);
+            if (byPath is not null)
+            {
+                byPath.SetAttribute("data-puid", puid);
+                target = byPath;
+            }
+        }
+
         if (target is null) return false;
 
         bool changed = false;
@@ -74,7 +68,7 @@ public static class HtmlTransformService
         switch (action)
         {
             case "edit":
-                state.BeginSelectionEdit(snippetId, puid, target.OuterHtml);
+                state.BeginSelectionEdit(snippetId, puid /* store puid here */, target.OuterHtml);
                 return true;
 
             case "clone":
@@ -106,22 +100,36 @@ public static class HtmlTransformService
                 break;
         }
 
-        if (!changed) return false;
+        if (!changed)
+        {
+            // If we attached puid via path only, persist that so next time PUID lookup works
+            if (FindByPuid(root, puid) is not null && !string.IsNullOrWhiteSpace(path))
+            {
+                var justPersistPuids = string.Concat(root.Children.Select(c => c.OuterHtml));
+                await state.SetSnippetHtml(justPersistPuids);
+                state.SelectSnippet(snippetId);
+            }
+            return true;
+        }
 
-        // Fix duplicate puids after structural ops
+        // After structural changes, ensure uniqueness and persist
         ReassignDuplicatePuids(root);
         var newHtml = string.Concat(root.Children.Select(c => c.OuterHtml));
-
-        state.SelectSnippet(snippetId);
         await state.SetSnippetHtml(newHtml);
+        state.SelectSnippet(snippetId);
         return true;
     }
 
-    public static async Task<string?> ExtractFragmentByPuidAsync(string html, string puid)
+    public static async Task<string?> ReplaceFragmentByPuidAsync(string html, string puid, string newOuterHtml)
     {
         var doc = await Ctx.OpenAsync(req => req.Content(html ?? ""));
         var root = doc.Body!;
         var target = FindByPuid(root, puid);
-        return target?.OuterHtml;
+        if (target is null) return null;
+        target.OuterHtml = newOuterHtml ?? "";
+        foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
+            EnsurePuid(el);
+        ReassignDuplicatePuids(root);
+        return string.Concat(root.Children.Select(c => c.OuterHtml));
     }
 }

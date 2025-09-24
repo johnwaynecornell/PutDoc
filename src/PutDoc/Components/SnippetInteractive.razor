@@ -21,10 +21,9 @@
     }
 
     [JSInvokable]
-    public async Task OnDomAction(string action, string puid)
+    public async Task OnDomAction(string action, string puid, string path)
     {
-        await HtmlTransformService.ApplyAsync(State, SnippetId, action, puid);
-        // ApplyAsync saves/Notifies; other panes refresh via State.Changed subscription
+        await HtmlTransformService.ApplyAsync(State, SnippetId, action, puid, path);
     }
 
     public void Dispose() => _selfRef?.Dispose();
