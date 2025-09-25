@@ -23,6 +23,7 @@
     [JSInvokable]
     public async Task OnDomAction(string action, string puid, string path)
     {
+        State.SelectSnippet(SnippetId);
         await HtmlTransformService.ApplyAsync(State, SnippetId, action, puid, path);
     }
 

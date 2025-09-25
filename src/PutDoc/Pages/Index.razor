@@ -53,14 +53,14 @@ else
 <style>
   /* 2 columns: left index + right stack */
   .putdoc-layout {
-    height: 100%;                                   /* fill Main’s area */
-    display: grid;
-    grid-template-columns: 320px minmax(0, 1fr);    /* prevent overflow pushing new rows */
-    gap: 16px;
-  }
+        height: 100%;                                   /* fill Main’s area */
+        display: grid;
+        grid-template-columns: 512px minmax(0, 1fr);   /* prevent overflow pushing new rows */
+        gap: 16px;
+    }
 
   .index {
-    border: 1px solid #ddd; border-radius: 8px; padding: 8px;
+    border: 1px solid #88B; border-radius: 8px; padding: 8px;
     overflow: auto; min-height: 0;                  /* allow proper scrolling */
   }
 
@@ -71,7 +71,7 @@ else
   }
 
   .editor, .workpane {
-    border: 1px solid #ddd; border-radius: 8px; padding: 8px;
+    border: 1px solid #88B; border-radius: 8px; padding: 8px;
     overflow: auto; min-height: 0;
   }
 
