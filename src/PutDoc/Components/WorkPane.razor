@@ -20,20 +20,20 @@
                 </div>
             </div>
             <div style="padding:.5rem; display:flex; gap:.5rem; border-top:1px solid #eee;">
-                <button class="btn" @onclick="() => State.AddSnippetBelow(snip.Id)">＋</button>
-                <button class="btn" @onclick="() => State.DeleteSnippet(snip.Id)">Delete</button>
-                <button class="btn" @onclick="() => State.CloneSnippet(snip.Id)">Clone</button>
-                <button class="btn" @onclick="() => CopyToClipboard(snip.Html)">Copy</button>
-                <button class="btn" @onclick="() => State.MoveSnippet(snip.Id, -1)">↑</button>
-                <button class="btn" @onclick="() => State.MoveSnippet(snip.Id, +1)">↓</button>
-                <button class="btn @(active ? "font-bold" : "")"
+                <button type="button" class="btn" @onclick="() => State.AddSnippetBelow(snip.Id)">＋</button>
+                <button type="button" class="btn" @onclick="() => State.DeleteSnippet(snip.Id)">Delete</button>
+                <button type="button" class="btn" @onclick="() => State.CloneSnippet(snip.Id)">Clone</button>
+                <button type="button" class="btn" @onclick="() => CopyToClipboard(snip.Html)">Copy</button>
+                <button type="button" class="btn" @onclick="() => State.MoveSnippet(snip.Id, -1)">↑</button>
+                <button type="button" class="btn" @onclick="() => State.MoveSnippet(snip.Id, +1)">↓</button>
+                <button type="button" class="btn @(active ? "font-bold" : "")"
                         @onclick="() => State.SelectSnippet(snip.Id)">
                     Edit
                 </button>
                 
-                <button class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Card)">+ slf-card</button>
-                <button class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Brick)">+ slf-brick</button>
-                <button class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Prompt)">+ prompt</button>
+                <button type="button" class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Card)">+ slf-card</button>
+                <button type="button" class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Brick)">+ slf-brick</button>
+                <button type="button" class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Prompt)">+ prompt</button>
                 
                 @code {
                     enum TemplateKind { Card, Brick, Prompt }
@@ -61,7 +61,7 @@
     }
 
     <div>
-        <button class="btn" @onclick="() => State.AddSnippetBelow(_page.Snippets.LastOrDefault()?.Id ?? Guid.Empty)">＋ Add snippet</button>
+        <button type="button" class="btn" @onclick="() => State.AddSnippetBelow(_page.Snippets.LastOrDefault()?.Id ?? Guid.Empty)">＋ Add snippet</button>
     </div>
 }
 else

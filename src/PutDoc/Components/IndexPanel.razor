@@ -27,7 +27,7 @@ else { <em>Missing root leaf.</em> }
     {
         <details open class="leaf">
             <summary class="leaf-row">
-                <button class="btn drop" @onclick="() => ToggleMenuFor(leaf.Id)">
+                <button type="button" class="btn drop" @onclick="() => ToggleMenuFor(leaf.Id)">
                     @(up_dn[_menuOpenFor == leaf.Id])
                 </button>
                 <span>📁</span>
@@ -39,8 +39,8 @@ else { <em>Missing root leaf.</em> }
             @if (_menuOpenFor == leaf.Id)
             {
                 <div class="menu-popover">
-                    <button class="btn" @onclick="() => State.CreatePage(leaf.Id)">+ Page</button>
-                    <button class="btn" @onclick="() => State.CreateLeaf(leaf.Id)">+ Leaf</button>
+                    <button type="button" class="btn" @onclick="() => State.CreatePage(leaf.Id)">+ Page</button>
+                    <button type="button" class="btn" @onclick="() => State.CreateLeaf(leaf.Id)">+ Leaf</button>
                 </div>
             }
 
@@ -64,10 +64,10 @@ else { <em>Missing root leaf.</em> }
                         var active = State.SelectedPageId == pid;
                         <li class="page-item @(active ? "active" : null)">
                             <div class="page-row">
-                                <button class="btn drop" @onclick="() => ToggleMenuFor(pid)">
+                                <button type="button" class="btn drop" @onclick="() => ToggleMenuFor(pid)">
                                     @(up_dn[_menuOpenFor == pid])
                                 </button>
-                                <button class="page-link @(active ? "active" : null)"
+                                <button type="button" class="page-link @(active ? "active" : null)"
                                         @onclick="() => State.SelectPage(pid)">
                                     📄 @p.Title
                                 </button>
@@ -76,13 +76,13 @@ else { <em>Missing root leaf.</em> }
                             @if (_menuOpenFor == pid)
                             {
                                 <div class="menu-popover">
-                                    <button class="btn" title="Rename" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
-                                    <button class="btn" title="Move Up" @onclick="() => State.MovePage(leaf.Id, pid, -1)">↑</button>
-                                    <button class="btn" title="Move Down" @onclick="() => State.MovePage(leaf.Id, pid, +1)">↓</button>
-                                    <button class="btn" title="Clone" @onclick="() => State.ClonePage(leaf.Id, pid)">⧉ Clone</button>
-                                    <button class="btn danger" title="Delete" @onclick="() => State.DeletePage(leaf.Id, pid)">🗑 Delete</button>
+                                    <button type="button" class="btn" title="Rename" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
+                                    <button type="button" class="btn" title="Move Up" @onclick="() => State.MovePage(leaf.Id, pid, -1)">↑</button>
+                                    <button type="button" class="btn" title="Move Down" @onclick="() => State.MovePage(leaf.Id, pid, +1)">↓</button>
+                                    <button type="button" class="btn" title="Clone" @onclick="() => State.ClonePage(leaf.Id, pid)">⧉ Clone</button>
+                                    <button type="button" class="btn danger" title="Delete" @onclick="() => State.DeletePage(leaf.Id, pid)">🗑 Delete</button>
                                     <span class="sep"></span>
-                                    <button class="btn primary" title="Paste HTML as new snippet" @onclick="() => PasteIntoPage(pid)">📋 Paste into Page</button>
+                                    <button type="button" class="btn primary" title="Paste HTML as new snippet" @onclick="() => PasteIntoPage(pid)">📋 Paste into Page</button>
                                 </div>
                             }
                         </li>
