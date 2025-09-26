@@ -58,7 +58,12 @@ public class PutDocState
         await _store.SaveAsync(Doc);
         Notify();
     }
+    
+    public long ContentVersion { get; private set; }
 
+    public enum UpdateSource { Editor, External }
+    public UpdateSource LastUpdateSource { get; private set; } = UpdateSource.External;
+    
     public async Task SetSnippetHtml(string html, bool isRawFromEditor = true)
     {
         var s = CurrentSnippet();
@@ -72,8 +77,12 @@ public class PutDocState
 
         // 3) re-add puids for runtime reliability
         cleaned = await HtmlPuid.EnsurePuidsAsync(cleaned);
-
+        
         s.Html = cleaned;
+        
+        LastUpdateSource = isRawFromEditor ? UpdateSource.Editor : UpdateSource.External;
+        ContentVersion++;
+
         await SaveAsync(); // SaveAsync -> Notify()
     }
 

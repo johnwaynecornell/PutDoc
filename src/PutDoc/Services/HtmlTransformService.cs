@@ -50,7 +50,7 @@ public static class HtmlTransformService
     }
 
     public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid, string? path = null)
-    {
+    {   
         var page = state.CurrentPage(); if (page is null) return false;
         var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return false;
 
@@ -128,7 +128,7 @@ public static class HtmlTransformService
         // After structural changes, ensure uniqueness and persist
         ReassignDuplicatePuids(root);
         var newHtml = SerializeFragment(root);
-        await state.SetSnippetHtml(newHtml);
+        await state.SetSnippetHtml(newHtml, false);
         state.SelectSnippet(snippetId);
         return true;
     }

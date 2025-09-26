@@ -1,41 +1,81 @@
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
+@inject IJSRuntime JS
 @using PutDoc.Services
+@implements IDisposable
 
 <h3 class="font-semibold mb-2">HTML Editor</h3>
 
 @if (_isFragmentMode)
 {
-    <div style="font-size:.85rem; color:#444; margin-bottom:.25rem;">
+    <div style="font-size:.85rem; color:#444; margin-bottom:.25rem; display:flex; gap:.5rem; align-items:center;">
         Editing fragment in snippet <code>@State.Selection.SnippetId</code>
-        <button type="button" class="btn" @onclick="CancelFragment" style="margin-left:.5rem;">Exit fragment</button>
+        <button type="button" class="btn" @onclick="ExitFragment">Exit fragment</button>
     </div>
 }
 
-@if (_currentSnippet is not null || _isFragmentMode)
-{
-    <textarea class="w-full"
-              style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
-              value="@editorText"
-              @oninput="OnInput" />
-    <div style="font-size:.8rem; color:#666; margin-top:.5rem;">
-        @_statusText • Saved through AngleSoft filter.
-    </div>
-}
-else
-{
-    <p style="color:#666;font-style:italic">Select a snippet from WorkPane to edit.</p>
-}
+<div class="palette" style="display:flex; gap:.35rem; flex-wrap:wrap; margin-bottom:.35rem;">
+    <button type="button" class="btn" @onclick='() => InsertTpl("card")'>+ slf-card</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
+    <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+    <button type="button" class="btn" @onclick='() => InsertTpl("table")'>+ table</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("list")'>+ list</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
+
+    <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+    <!-- <button type="button" class="btn" @onclick="FormatCurrent">Format HTML</button> -->
+
+</div>
+
+
+<!--
+
+<textarea @ref="_ta"
+          class="w-full"
+          style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
+          @bind="editorText"
+          @bind:event="oninput"
+          @bind:after="OnBoundChanged"
+          @onkeydown="OnKeyDown"
+          @onkeydown:preventDefault="@PreventForKey">
+</textarea> -->
+
+<textarea @ref="_ta"
+          class="w-full"
+          style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
+          @bind="editorText"
+          @bind:event="oninput"
+          @bind:after="OnBoundChanged">
+</textarea>
 
 @code {
-    private string editorText = "";
-    private Snippet? _currentSnippet;
-    private Guid? _lastSeenSnippetId;
-    private bool _isFragmentMode;
+    protected override async void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("putdocText.bindTabIndent", _ta);
+        }
+    }
+}
 
-    private System.Timers.Timer? _debounceTimer;
+
+<div style="font-size:.8rem; color:#666; margin-top:.5rem;">
+    @_statusText • Saved through AngleSoft filter.
+</div>
+
+@code {
+    // UI state
+    private string editorText = "";
+    private ElementReference _ta;
+    private bool _isFragmentMode;
+    private Guid? _lastSnippetId;
+
+    // debounce timer (autosave)
+    private System.Timers.Timer? _debounce;
     private const int DebounceMs = 600;
 
+    // status
     private enum SaveState { Idle, Typing, Saving, Saved }
     private SaveState _saveState = SaveState.Idle;
     private string _statusText => _saveState switch
@@ -49,97 +89,178 @@ else
     protected override void OnInitialized()
     {
         State.Changed += OnStateChanged;
-        _debounceTimer = new System.Timers.Timer(DebounceMs) { AutoReset = false };
-        _debounceTimer.Elapsed += async (_, __) =>
-        {
-            await InvokeAsync(SaveAsync);
-        };
-        SyncFromState();
+        // initial sync
+        _ = SyncFromStateAsync(force:true);
     }
 
     private void OnStateChanged()
     {
-        SyncFromState();
-        _ = InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(() => SyncFromStateAsync(force:false));
     }
 
-    private void SyncFromState()
+    private long _lastSeenContentVersion;
+
+    private async Task SyncFromStateAsync(bool force)
     {
-        // Components/HtmlEditor.razor (inside SyncFromState)
         var wasFragment = _isFragmentMode;
         _isFragmentMode = State.Selection.IsActive;
 
         if (_isFragmentMode)
         {
-            // fragment mode …
-            editorText = HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "").Result;
-
-            _currentSnippet = State.CurrentPage()?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
-            _lastSeenSnippetId = _currentSnippet?.Id;
+            editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
+            _lastSnippetId = State.Selection.SnippetId;
+            _lastSeenContentVersion = State.ContentVersion;
             _saveState = SaveState.Idle;
+            StateHasChanged();
             return;
         }
 
-// Now in full-snippet mode
-        _currentSnippet = State.CurrentSnippet();
-        _lastSeenSnippetId = _currentSnippet?.Id;
+        var snip = State.CurrentSnippet();
+        var sid = snip?.Id;
 
-// If we *just left* fragment mode, always refresh editorText
-        if (wasFragment)
+        var externalChangeOnSameSnippet =
+            State.LastUpdateSource == PutDocState.UpdateSource.External &&
+            State.ContentVersion != _lastSeenContentVersion &&
+            sid == _lastSnippetId;
+
+        if (force || sid != _lastSnippetId || wasFragment || externalChangeOnSameSnippet)
         {
-            editorText = HtmlPuid.StripPuidsAsync(_currentSnippet?.Html ?? "").Result;
+            editorText = await HtmlPuid.StripPuidsAsync(snip?.Html ?? "");
+            _lastSnippetId = sid;
+            _lastSeenContentVersion = State.ContentVersion;
             _saveState = SaveState.Idle;
-        }
-        else if (_currentSnippet is not null && editorText != _currentSnippet.Html)
-        {
-            editorText = HtmlPuid.StripPuidsAsync(_currentSnippet.Html ?? "").Result;
+            StateHasChanged();
         }
     }
-
-    private void OnInput(ChangeEventArgs e)
+    
+    void OnBoundChanged()
     {
-        editorText = e.Value?.ToString() ?? "";
+        // exactly what your OnTextChanged() does
         _saveState = SaveState.Typing;
-        _debounceTimer?.Stop();
-        _debounceTimer?.Start();
+        _debounce?.Stop();
+        _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
+        _debounce.Elapsed -= DebouncedSave;
+        _debounce.Elapsed += DebouncedSave;
+        _debounce.Start();
+    }
+
+    // Typing is handled by @bind; we only manage debounce/save + status
+    private void OnTextChanged()
+    {
+        _saveState = SaveState.Typing;
+        _debounce?.Stop();
+        _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
+        _debounce.Elapsed -= DebouncedSave; // avoid multiple subscriptions
+        _debounce.Elapsed += DebouncedSave;
+        _debounce.Start();
+    }
+
+    // Hook the bound change (oninput) to our debounce method
+    // (Blazor doesn't provide a direct "oninput changed" callback for @bind,
+    //  so we can wire it by adding @oninput and calling this method if needed.
+    //  Alternatively, we can rely on OnKeyDown to mark Typing and the timer to save.)
+    // If you want a strict hook, add: @oninput="@(e => OnTextChanged())" to the <textarea>.
+    // For clarity, let's do it:
+    
+    private async void DebouncedSave(object? sender, System.Timers.ElapsedEventArgs e)
+    {
+        await InvokeAsync(SaveAsync);
     }
 
     private async Task SaveAsync()
     {
-        _saveState = SaveState.Saving; StateHasChanged();
+        // Preserve caret around explicit rewrites
+        var sel = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+
+        _saveState = SaveState.Saving;
+        StateHasChanged();
 
         if (_isFragmentMode && State.Selection.IsActive)
         {
+            // Replace only the fragment by PUID; SetSnippetHtml(false) to avoid double-strip
             var page = State.CurrentPage();
             var snip = page?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
             if (snip is not null)
             {
-                // Replace by puid, then EnsurePuids done inside SetSnippetHtml
                 var newHtml = await HtmlTransformService.ReplaceFragmentByPuidAsync(
-                    snip.Html ?? "", State.Selection.Selector /* puid */, editorText);
+                    snip.Html ?? "", State.Selection.Selector /* PUID */, editorText);
+
                 if (newHtml is not null)
-                    await State.SetSnippetHtml(newHtml, isRawFromEditor:false);
+                    await State.SetSnippetHtml(newHtml, isRawFromEditor: false);
             }
-            // refresh the fragment model (still stripped for viewing)
+            // refresh fragment model (still strip puids so editor is clean)
             State.BeginSelectionEdit(State.Selection.SnippetId, State.Selection.Selector, editorText);
         }
         else
         {
-            await State.SetSnippetHtml(editorText, isRawFromEditor:true);
+            await State.SetSnippetHtml(editorText, isRawFromEditor: true);
+            var cleaned = await HtmlPuid.StripPuidsAsync(State.CurrentSnippet()?.Html ?? "");
+            editorText = cleaned;
         }
 
-        _saveState = SaveState.Saved; StateHasChanged();
+        
+        
+        _saveState = SaveState.Saved;
+        StateHasChanged();
+
+        // Restore caret
+        await JS.InvokeVoidAsync("putdocText.setSel", _ta, sel.Start, sel.End);
     }
 
-    private void CancelFragment()
+    private bool PreventForKey { get; set; }
+    
+    private async Task OnKeyDown(KeyboardEventArgs e)
     {
-        State.CancelSelectionEdit();
+        // Tab / Shift+Tab indent without losing caret
+        if (e.Key == "Tab")
+        {
+            PreventForKey = true;
+            try { await JS.InvokeVoidAsync("putdocText.indent", _ta, e.ShiftKey); }
+            catch { /* no-op fallback if JS not loaded */ }
+            // mark as typing (kicks the debounce)
+            _saveState = SaveState.Typing;
+            _debounce?.Stop();
+            _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
+            _debounce.Elapsed -= DebouncedSave;
+            _debounce.Elapsed += DebouncedSave;
+            _debounce.Start();
+        } else PreventForKey = false;
     }
+
+    private async Task InsertTpl(string kind)
+    {
+        var tpl = kind switch
+        {
+            "card"   => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
+            "brick"  => "<div class=\"slf-brick\"><h3>BRICK</h3><p><b>Definition</b>: <span>...</span></p><div><b>Example</b>: <div>...</div></div></div>",
+            "prompt" => "<div class=\"prompt_area\"><h3>Prompt</h3><p>...</p></div>",
+            "table"  => "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
+            "list"   => "<ul><li>Item 1</li><li>Item 2</li></ul>",
+            _        => "<p>...</p>"
+        };
+        await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, tpl);
+        // treat as typing
+        _saveState = SaveState.Typing;
+        _debounce?.Stop();
+        _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
+        _debounce.Elapsed -= DebouncedSave;
+        _debounce.Elapsed += DebouncedSave;
+        _debounce.Start();
+    }
+
+    private void ExitFragment() => State.CancelSelectionEdit();
 
     public void Dispose()
     {
         State.Changed -= OnStateChanged;
-        _debounceTimer?.Stop();
-        _debounceTimer?.Dispose();
+        if (_debounce is not null)
+        {
+            _debounce.Stop();
+            _debounce.Dispose();
+            _debounce = null;
+        }
     }
+
+    // Strongly-typed sel DTO for JS interop
+    public record TextSelection(int Start, int End);
 }

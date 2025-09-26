@@ -2,6 +2,11 @@ using PutDoc.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Add: command-line + env support already merges into Configuration
+// In PutDocStore ctor you already read cfg["PutDocRootPath"].
+// Also read an env var PUTDOC_ROOT if present:
+builder.Configuration.AddEnvironmentVariables(prefix: "PUTDOC_");
+
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
 

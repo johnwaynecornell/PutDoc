@@ -3,7 +3,7 @@
 @using Microsoft.AspNetCore.Components.Web   
 
 @inject PutDocState State
-<PageTitle>PutDoc</PageTitle>
+@inject IJSRuntime JS
 
 @if (State.Doc?.Leafs?.Count == 0)
 {
@@ -11,38 +11,52 @@
 }
 else
 {
-    <div class="putdoc-layout">
-        <aside class="index">
-            <IndexPanel />
+    <div class="putdoc-layout" id="putdocLayout" @ref="_layoutRef"
+         style="--index-w: 420px; --editor-h: 320px;">
+        
+        <PageTitle>PutDoc</PageTitle>
+
+        <aside class="index resizable-x">
+            <IndexPanel/>
         </aside>
 
+        <div class="v-divider" data-role="v-split" aria-label="Resize index panel" tabindex="0"></div>
+
         <section class="right">
-            <div class="editor">
-                <HtmlEditor />
+            <div class="editor resizable-y">
+                <HtmlEditor/>
             </div>
+
+            <div class="h-divider" data-role="h-split" aria-label="Resize editor panel" tabindex="0"></div>
+
             <div class="workpane">
-                <WorkPane />
+                <WorkPane/>
             </div>
         </section>
     </div>
+
 }
 
-// Pages/Index.razor
 @code {
-    string? loadError;
+     private ElementReference _layoutRef;
+     string? loadError;
 
-    protected override async Task OnInitializedAsync()
-    {
-        try
-        {
-            await State.LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            loadError = ex.Message;
-        }
-    }
+     protected override async Task OnInitializedAsync()
+     {
+         try { await State.LoadAsync(); }
+         catch (Exception ex) { loadError = ex.Message; }
+     }
+
+     protected override async Task OnAfterRenderAsync(bool firstRender)
+     {
+         if (firstRender)
+         {
+             // attach draggable splitters + load saved sizes
+             await JS.InvokeVoidAsync("putdocLayout.initSplitters", _layoutRef);
+         }
+     }
 }
+
 @if (!string.IsNullOrEmpty(loadError))
 {
     <div style="color:#b00; padding:.75rem; border:1px solid #f2c; background:#fee;">
@@ -51,30 +65,41 @@ else
 }
 
 <style>
-  /* 2 columns: left index + right stack */
-  .putdoc-layout {
-        height: 100%;                                   /* fill Main’s area */
-        display: grid;
-        grid-template-columns: 512px minmax(0, 1fr);   /* prevent overflow pushing new rows */
-        gap: 16px;
+    body{
+      background-image: url('bgtile_jwc_proxy.png');
+      background-repeat:repeat;
+      background-size:auto;
+      background-attachment:fixed;
+    }
+  </style>
+
+<style>
+    :root, html, body { height: 100%; }
+
+    /* Container fills viewport (adjust if you have a fixed header) */
+    .putdoc-layout { height: 100vh; display: grid;
+        grid-template-columns: var(--index-w, 420px) 6px minmax(0,1fr);
+        grid-template-rows: minmax(0,1fr);
     }
 
-  .index {
-    border: 1px solid #88B; border-radius: 8px; padding: 8px;
-    overflow: auto; min-height: 0;                  /* allow proper scrolling */
-  }
+    /* Right side is a grid: editor | divider | workpane */
+    .right { display: grid; grid-template-rows: var(--editor-h, 320px) 6px minmax(0,1fr); min-height: 0; }
 
-  .right {
-    display: grid;
-    grid-template-rows: 300px minmax(0, 1fr);       /* editor fixed; workpane fills */
-    gap: 16px; min-height: 0;
-  }
+    .index, .editor, .workpane { border: 1px solid #224; border-radius: 8px; padding: 8px; overflow: auto; min-height: 0; background: #fff; }
 
-  .editor, .workpane {
-    border: 1px solid #88B; border-radius: 8px; padding: 8px;
-    overflow: auto; min-height: 0;
-  }
+    /* Optional: keep native handles too */
+    .resizable-x { resize: horizontal; }
+    .resizable-y { resize: vertical; }
 
-  /* Optional: make editor resizable while keeping bottom pane adaptive */
-  .editor { resize: vertical; overflow: auto; }
+    /* Divider visuals */
+    .v-divider, .h-divider {
+        background: linear-gradient(#ccd, #ccd) content-box, linear-gradient(#889, #889) padding-box;
+        border-radius: 4px; box-shadow: inset 0 0 0 1px #99a; opacity: .9;
+    }
+    .v-divider { width: 6px; cursor: col-resize; margin: 0 6px; }
+    .h-divider { height: 6px; cursor: row-resize; margin: 6px 0; }
+
+    /* Focus ring for keyboard accessibility */
+    .v-divider:focus, .h-divider:focus { outline: 2px solid #66a; outline-offset: 2px; }
+
 </style>

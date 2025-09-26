@@ -52,7 +52,7 @@
                             _ => ""
                         };
 
-                        await State.SetSnippetHtml(html + "\n" + add);
+                        await State.SetSnippetHtml(html + "\n" + add, false);
                         State.SelectSnippet(snippetId);
                     }
                 }

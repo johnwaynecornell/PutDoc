@@ -84,4 +84,181 @@
         return '';
     };
 
+    window.putdocLayout = (function () {
+        function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+        function px(n) { return `${Math.round(n)}px`; }
+
+        function initSplitters(container) {
+            if (!container || container._splittersBound) return;
+            container._splittersBound = true;
+
+            // Restore saved sizes
+            try {
+                const savedW = localStorage.getItem('putdoc.indexW');
+                const savedH = localStorage.getItem('putdoc.editorH');
+                if (savedW) container.style.setProperty('--index-w', savedW);
+                if (savedH) container.style.setProperty('--editor-h', savedH);
+            } catch {}
+
+            const vSplit = container.querySelector('[data-role="v-split"]');
+            const hSplit = container.querySelector('[data-role="h-split"]');
+
+            // Drag helpers
+            function startDrag(e, axis) {
+                e.preventDefault();
+                const rect = container.getBoundingClientRect();
+                const startX = (e.touches ? e.touches[0].clientX : e.clientX);
+                const startY = (e.touches ? e.touches[0].clientY : e.clientY);
+                const startW = parseFloat(getComputedStyle(container).getPropertyValue('--index-w')) || 420;
+                const startH = parseFloat(getComputedStyle(container).getPropertyValue('--editor-h')) || 320;
+
+                // Prevent text selection while dragging
+                const prevSel = document.body.style.userSelect;
+                document.body.style.userSelect = 'none';
+
+                function onMove(ev) {
+                    const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+                    const y = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+
+                    if (axis === 'x') {
+                        // width from left edge to cursor
+                        const dx = x - rect.left;
+                        // leave room for divider + right content; clamp 240px..60% viewport
+                        const w = clamp(dx, 240, Math.min(window.innerWidth * 0.6, rect.width - 240));
+                        container.style.setProperty('--index-w', px(w));
+                    } else {
+                        // height within right grid: top of right section equals container top in this layout
+                        const dy = y - rect.top;
+                        const h = clamp(dy, 200, Math.min(window.innerHeight * 0.75, rect.height - 200));
+                        container.style.setProperty('--editor-h', px(h));
+                    }
+                }
+
+                function onUp() {
+                    // persist sizes
+                    try {
+                        const iw = getComputedStyle(container).getPropertyValue('--index-w').trim();
+                        const eh = getComputedStyle(container).getPropertyValue('--editor-h').trim();
+                        localStorage.setItem('putdoc.indexW', iw);
+                        localStorage.setItem('putdoc.editorH', eh);
+                    } catch {}
+                    // cleanup
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    document.removeEventListener('touchmove', onMove);
+                    document.removeEventListener('touchend', onUp);
+                    document.body.style.userSelect = '';
+                }
+
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('touchend', onUp);
+            }
+
+            if (vSplit) {
+                vSplit.addEventListener('mousedown', (e) => startDrag(e, 'x'));
+                vSplit.addEventListener('touchstart', (e) => startDrag(e, 'x'), { passive: false });
+                // keyboard: left/right to resize
+                vSplit.addEventListener('keydown', (e) => {
+                    const step = (e.shiftKey ? 40 : 16);
+                    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                        e.preventDefault();
+                        const cur = parseFloat(getComputedStyle(container).getPropertyValue('--index-w')) || 420;
+                        const delta = (e.key === 'ArrowLeft' ? -step : step);
+                        const w = clamp(cur + delta, 240, Math.min(window.innerWidth * 0.6, container.getBoundingClientRect().width - 240));
+                        container.style.setProperty('--index-w', px(w));
+                        try { localStorage.setItem('putdoc.indexW', px(w)); } catch {}
+                    }
+                });
+            }
+
+            if (hSplit) {
+                hSplit.addEventListener('mousedown', (e) => startDrag(e, 'y'));
+                hSplit.addEventListener('touchstart', (e) => startDrag(e, 'y'), { passive: false });
+                // keyboard: up/down to resize
+                hSplit.addEventListener('keydown', (e) => {
+                    const step = (e.shiftKey ? 40 : 16);
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        const cur = parseFloat(getComputedStyle(container).getPropertyValue('--editor-h')) || 320;
+                        const delta = (e.key === 'ArrowUp' ? -step : step);
+                        const h = clamp(cur + delta, 200, Math.min(window.innerHeight * 0.75, container.getBoundingClientRect().height - 200));
+                        container.style.setProperty('--editor-h', px(h));
+                        try { localStorage.setItem('putdoc.editorH', px(h)); } catch {}
+                    }
+                });
+            }
+        }
+
+        return { initSplitters };
+    })();
+
+
+    window.putdocText = window.putdocText || {};
+
+
+    window.putdocText.bindTabIndent = function (ta) {
+        if (!ta || ta._putdocTabBound) return;
+        ta._putdocTabBound = true;
+        ta.addEventListener('keydown', function (e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                window.putdocText.indent(ta, e.shiftKey);
+            }
+        });
+    };
+
+    window.putdocText.indent= function (ta, outdent) {
+        
+        const el = ta;
+        const start = el.selectionStart, end = el.selectionEnd;
+        const value = el.value;
+        const nl = value.lastIndexOf('\n', start - 1) + 1;
+        if (start !== end) {
+            // block indent/outdent
+            const lines = value.slice(nl, end).split('\n');
+            const mod = lines.map(line => {
+                if (outdent) return line.startsWith('  ') ? line.slice(2) : line;
+                return '  ' + line;
+            }).join('\n');
+            const before = value.slice(0, nl);
+            const after = value.slice(end);
+            el.value = before + mod + after;
+            const delta = mod.length - (value.slice(nl, end).length);
+            el.selectionStart = nl;
+            el.selectionEnd = end + delta;
+        } else {
+            // single caret
+            const before = value.slice(0, start);
+            const after = value.slice(end);
+            if (outdent && before.endsWith('  ')) {
+                el.value = before.slice(0, -2) + after;
+                el.selectionStart = el.selectionEnd = start - 2;
+            } else if (!outdent) {
+                el.value = before + '  ' + after;
+                el.selectionStart = el.selectionEnd = start + 2;
+            }
+        }
+        // fire input so Blazor picks it up
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    window.putdocText.getSel = (ta) => {
+        return {
+            start: ta.selectionStart ?? 0,
+            end: ta.selectionEnd ?? 0 //ta.selectionStart ?? 0
+        };
+    };
+    //window.putdocText.getSel = (ta) => [ta.selectionStart, ta.selectionEnd];
+    window.putdocText.setSel = (ta, s, e) => { ta.selectionStart = s; ta.selectionEnd = e; ta.focus(); };
+
+    window.putdocText.insertAtCaret = (ta, text) => {
+        const s = ta.selectionStart, e = ta.selectionEnd;
+        ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
+        const pos = s + text.length;
+        ta.selectionStart = ta.selectionEnd = pos;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.focus();
+    };
 })();
