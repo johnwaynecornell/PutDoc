@@ -5,6 +5,8 @@
 @inject PutDocState State
 @inject IJSRuntime JS
 
+<PageTitle>PutDoc</PageTitle>
+
 @if (State.Doc?.Leafs?.Count == 0)
 {
     <p>Loading…</p>
@@ -14,8 +16,6 @@ else
     <div class="putdoc-layout" id="putdocLayout" @ref="_layoutRef"
          style="--index-w: 420px; --editor-h: 320px;">
         
-        <PageTitle>PutDoc</PageTitle>
-
         <aside class="index resizable-x">
             <IndexPanel/>
         </aside>
@@ -23,7 +23,7 @@ else
         <div class="v-divider" data-role="v-split" aria-label="Resize index panel" tabindex="0"></div>
 
         <section class="right">
-            <div class="editor resizable-y">
+            <div class="editor">
                 <HtmlEditor/>
             </div>
 
@@ -51,7 +51,7 @@ else
      {
          if (firstRender)
          {
-             // attach draggable splitters + load saved sizes
+             await JS.InvokeVoidAsync("putdocHeader.init");
              await JS.InvokeVoidAsync("putdocLayout.initSplitters", _layoutRef);
          }
      }
@@ -74,32 +74,81 @@ else
   </style>
 
 <style>
-    :root, html, body { height: 100%; }
+    :root { --topbar-h: 0px; }        /* set dynamically by JS */
+    html, body { height: 100%; margin: 0; }
 
-    /* Container fills viewport (adjust if you have a fixed header) */
-    .putdoc-layout { height: 100vh; display: grid;
+    
+
+    /* Remove surplus padding and give the content area a fixed height
+       equal to viewport minus the measured header. */
+    article.content {
+        padding: 0 !important;
+        height: calc(100vh - var(--topbar-h));
+        overflow: hidden;              /* our grid handles internal scrolling */
+    }
+
+    /* Your PutDoc grid should then occupy 100% of article.content */
+    .putdoc-layout {
+        height: 100%;                  /* fill the content box */
+        display: grid;
         grid-template-columns: var(--index-w, 420px) 6px minmax(0,1fr);
         grid-template-rows: minmax(0,1fr);
     }
 
-    /* Right side is a grid: editor | divider | workpane */
-    .right { display: grid; grid-template-rows: var(--editor-h, 320px) 6px minmax(0,1fr); min-height: 0; }
+    /* Right side grid (editor / divider / workpane) */
+    .right {
+        display: grid;
+        grid-template-rows: var(--editor-h, 320px) 6px minmax(0,1fr);
+        min-height: 0;
+    }
 
-    .index, .editor, .workpane { border: 1px solid #224; border-radius: 8px; padding: 8px; overflow: auto; min-height: 0; background: #fff; }
+    .putdoc-layout { height: 100%; overflow: hidden; }
+    .right { overflow: hidden; }
 
-    /* Optional: keep native handles too */
-    .resizable-x { resize: horizontal; }
-    .resizable-y { resize: vertical; }
+    /* Boxes */
+    .index, .workpane {
+        border: 1px solid #224; border-radius: 8px; padding: 8px;
+        overflow: auto; min-height: 0; background: #fff;
+    }
 
-    /* Divider visuals */
+    /* container fills its grid cell without adding its own scrollbars */
+    .editor {
+        border: 1px solid #224; border-radius: 8px; padding: 8px;
+        min-height: 0; background: #fff;
+        
+        
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;          /* ← important */
+        box-sizing: border-box;    /* include padding in size */
+    }
+
+    /* palette (buttons) stays at natural height */
+    .editor .palette {
+        flex: 0 0 auto;
+    }
+
+    /* textarea stretches, no extra width, scrolls if needed */
+    .editor textarea {
+        flex: 1 1 auto;
+        min-height: 0;             /* allow flex item to shrink vertically */
+        min-width: 0;              /* prevent horizontal overflow */
+        width: 100%;
+        box-sizing: border-box;    /* account for padding/border */
+        overflow: auto;            /* only this scrolls */
+        resize: none;              /* you now have a draggable divider; disable native resize */
+        /* optional line-wrapping to avoid horizontal scrollbars */
+        white-space: pre-wrap;     /* wrap long lines */
+        overflow-wrap: break-word; /* break very long tokens */
+    }
+
+
+    /* Dividers (visuals only; your draggable JS already wired them) */
     .v-divider, .h-divider {
         background: linear-gradient(#ccd, #ccd) content-box, linear-gradient(#889, #889) padding-box;
         border-radius: 4px; box-shadow: inset 0 0 0 1px #99a; opacity: .9;
     }
     .v-divider { width: 6px; cursor: col-resize; margin: 0 6px; }
     .h-divider { height: 6px; cursor: row-resize; margin: 6px 0; }
-
-    /* Focus ring for keyboard accessibility */
-    .v-divider:focus, .h-divider:focus { outline: 2px solid #66a; outline-offset: 2px; }
 
 </style>

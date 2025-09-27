@@ -194,6 +194,22 @@
         return { initSplitters };
     })();
 
+    window.putdocHeader = (function () {
+        function setHeaderVar() {
+            const hdr = document.querySelector('.top-row'); // default Blazor header
+            const h = hdr ? hdr.offsetHeight : 0;
+            document.documentElement.style.setProperty('--topbar-h', `${h}px`);
+        }
+        function init() {
+            setHeaderVar();
+            // Recompute on resize / font load / layout changes
+            window.addEventListener('resize', setHeaderVar);
+            // Some layouts change height after first render
+            setTimeout(setHeaderVar, 0);
+        }
+        return { init };
+    })();
+
 
     window.putdocText = window.putdocText || {};
 

@@ -16,7 +16,9 @@ public class PutDocStore : IPutDocStore
 
     public PutDocStore(IConfiguration cfg)
     {
-        RootPath = cfg["PutDocRootPath"] ?? Directory.GetCurrentDirectory();
+        RootPath = cfg["PutDocRootPath"]
+                   ?? cfg["ROOT"]              // from PUTDOC_ROOT
+                   ?? Directory.GetCurrentDirectory();
         Directory.CreateDirectory(RootPath);
     }
 
