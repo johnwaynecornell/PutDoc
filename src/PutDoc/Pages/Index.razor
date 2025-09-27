@@ -73,82 +73,194 @@ else
     }
   </style>
 
+
 <style>
-    :root { --topbar-h: 0px; }        /* set dynamically by JS */
+    /* ---------- Global & Header Compensation ---------- */
+    :root { --topbar-h: 0px; }          /* set by putdocHeader.init() */
     html, body { height: 100%; margin: 0; }
 
-    
-
-    /* Remove surplus padding and give the content area a fixed height
-       equal to viewport minus the measured header. */
     article.content {
         padding: 0 !important;
         height: calc(100vh - var(--topbar-h));
-        overflow: hidden;              /* our grid handles internal scrolling */
+        overflow: hidden;                 /* our grid manages scrollbars */
     }
 
-    /* Your PutDoc grid should then occupy 100% of article.content */
+    /* Optional app background */
+    body{
+        background-image: url('bgtile_jwc_proxy.png');
+        background-repeat: repeat;
+        background-size: auto;
+        background-attachment: fixed;
+    }
+
+    /* ---------- Main Grid (Index | Divider | Right) ---------- */
     .putdoc-layout {
-        height: 100%;                  /* fill the content box */
+        height: 100%;
+        overflow: hidden;                 /* prevent outer scrollbars */
         display: grid;
-        grid-template-columns: var(--index-w, 420px) 6px minmax(0,1fr);
+        grid-template-columns: var(--index-w, 420px) 8px minmax(0,1fr); /* match .v-divider width */
         grid-template-rows: minmax(0,1fr);
     }
 
-    /* Right side grid (editor / divider / workpane) */
-    .right {
-        display: grid;
-        grid-template-rows: var(--editor-h, 320px) 6px minmax(0,1fr);
-        min-height: 0;
-    }
-
-    .putdoc-layout { height: 100%; overflow: hidden; }
-    .right { overflow: hidden; }
-
-    /* Boxes */
-    .index, .workpane {
+    /* Left pane (Index) */
+    .index {
         border: 1px solid #224; border-radius: 8px; padding: 8px;
         overflow: auto; min-height: 0; background: #fff;
     }
 
-    /* container fills its grid cell without adding its own scrollbars */
+    /* ---------- Right Grid (Editor | Divider | WorkPane) ---------- */
+    .right {
+        position: relative;               /* stacking context for z-index */
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: var(--editor-h, 320px) 8px minmax(0,1fr);   /* match .h-divider height */
+        min-height: 0;
+    }
+
+    /* Editor container: flex column, single scroll surface */
     .editor {
         border: 1px solid #224; border-radius: 8px; padding: 8px;
-        min-height: 0; background: #fff;
-        
-        
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;          /* ← important */
-        box-sizing: border-box;    /* include padding in size */
+        background: #fff; box-sizing: border-box;
+        display: flex; flex-direction: column;
+        overflow: hidden;                  /* container does NOT scroll */
+        min-height: 0;
     }
 
-    /* palette (buttons) stays at natural height */
-    .editor .palette {
-        flex: 0 0 auto;
-    }
+    /* Palette row keeps natural height */
+    .editor .palette { flex: 0 0 auto; }
 
-    /* textarea stretches, no extra width, scrolls if needed */
+    /* Textarea fills and is the only scrollable surface */
     .editor textarea {
         flex: 1 1 auto;
-        min-height: 0;             /* allow flex item to shrink vertically */
-        min-width: 0;              /* prevent horizontal overflow */
-        width: 100%;
-        box-sizing: border-box;    /* account for padding/border */
-        overflow: auto;            /* only this scrolls */
-        resize: none;              /* you now have a draggable divider; disable native resize */
-        /* optional line-wrapping to avoid horizontal scrollbars */
-        white-space: pre-wrap;     /* wrap long lines */
-        overflow-wrap: break-word; /* break very long tokens */
+        min-height: 0; min-width: 0; width: 100%;
+        box-sizing: border-box;
+        overflow: auto;
+        resize: none;                      /* we have a splitter */
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
     }
 
+    /* WorkPane box */
+    .workpane {
+        border: 1px solid #224; border-radius: 8px; padding: 8px;
+        overflow: auto; min-height: 0; background: #fff;
+    }
 
-    /* Dividers (visuals only; your draggable JS already wired them) */
+    /* Ensure panes sit below the divider bars */
+    .index, .editor, .workpane { position: relative; z-index: 0; }
+
+    /* ---------- Visible, On-Top Dividers (draggable) ---------- */
     .v-divider, .h-divider {
-        background: linear-gradient(#ccd, #ccd) content-box, linear-gradient(#889, #889) padding-box;
-        border-radius: 4px; box-shadow: inset 0 0 0 1px #99a; opacity: .9;
+        background-color: #cfd4e4;          /* visible */
+        box-shadow: inset 0 0 0 1px #7a8197;/* subtle line */
+        border-radius: 4px;
+        margin: 0;
+        position: relative;
+        z-index: 10;                         /* above scrolling panes */
     }
-    .v-divider { width: 6px; cursor: col-resize; margin: 0 6px; }
-    .h-divider { height: 6px; cursor: row-resize; margin: 6px 0; }
+
+    /* Vertical divider between Index and Right */
+    .v-divider {
+        width: 8px;                          /* keep in sync with grid column */
+        cursor: col-resize;
+        align-self: stretch;                  /* fill column height */
+    }
+
+    /* Horizontal divider between Editor and WorkPane */
+    .h-divider {
+        height: 8px;                         /* keep in sync with grid row */
+        cursor: row-resize;
+        justify-self: stretch;               /* fill row width */
+    }
+
+    /* (Optional) Keep native handles if you still use them elsewhere */
+    .resizable-x { resize: horizontal; }
+    .resizable-y { resize: vertical; }
+
 
 </style>
+
+@* <style> *@
+@*     :root { --topbar-h: 0px; }        /* set dynamically by JS */ *@
+@*     html, body { height: 100%; margin: 0; } *@
+@*      *@
+@*     /* Remove surplus padding and give the content area a fixed height *@
+@*        equal to viewport minus the measured header. */ *@
+@*     article.content { *@
+@*         padding: 0 !important; *@
+@*         height: calc(100vh - var(--topbar-h)); *@
+@*         overflow: hidden;              /* our grid handles internal scrolling */ *@
+@*     } *@
+@* *@
+@*     /* Your PutDoc grid should then occupy 100% of article.content */ *@
+@*     .putdoc-layout { *@
+@*         height: 100%;                  /* fill the content box */ *@
+@*         display: grid; *@
+@*         grid-template-columns: var(--index-w, 420px) 6px minmax(0,1fr); *@
+@*         grid-template-rows: minmax(0,1fr); *@
+@*     } *@
+@* *@
+@*     /* Right side grid (editor / divider / workpane) */ *@
+@*     .right { *@
+@*         position: relative;        /* creates a stacking context */ *@
+@*         overflow: hidden;          /* clip children edges cleanly */ *@
+@*         display: grid; *@
+@*         grid-template-rows: var(--editor-h, 320px) 6px minmax(0,1fr); *@
+@*     } *@
+@* *@
+@*     .putdoc-layout { height: 100%; overflow: hidden; } *@
+@*      *@
+@*     /* Boxes */ *@
+@*     .index, .workpane { *@
+@*         border: 1px solid #224; border-radius: 8px; padding: 8px; *@
+@*         overflow: auto; min-height: 0; background: #fff; *@
+@*     } *@
+@* *@
+@*     /* container fills its grid cell without adding its own scrollbars */ *@
+@*     .editor { *@
+@*         border: 1px solid #224; border-radius: 8px; padding: 8px; *@
+@*         min-height: 0; background: #fff; *@
+@*          *@
+@*          *@
+@*         display: flex; *@
+@*         flex-direction: column; *@
+@*         overflow: hidden;          /* ← important */ *@
+@*         box-sizing: border-box;    /* include padding in size */ *@
+@*     } *@
+@* *@
+@*     /* palette (buttons) stays at natural height */ *@
+@*     .editor .palette { *@
+@*         flex: 0 0 auto; *@
+@*     } *@
+@* *@
+@*     /* textarea stretches, no extra width, scrolls if needed */ *@
+@*     .editor textarea { *@
+@*         flex: 1 1 auto; *@
+@*         min-height: 0;             /* allow flex item to shrink vertically */ *@
+@*         min-width: 0;              /* prevent horizontal overflow */ *@
+@*         width: 100%; *@
+@*         box-sizing: border-box;    /* account for padding/border */ *@
+@*         overflow: auto;            /* only this scrolls */ *@
+@*         resize: none;              /* you now have a draggable divider; disable native resize */ *@
+@*         /* optional line-wrapping to avoid horizontal scrollbars */ *@
+@*         white-space: pre-wrap;     /* wrap long lines */ *@
+@*         overflow-wrap: break-word; /* break very long tokens */ *@
+@*     } *@
+@* *@
+@*     .editor, .workpane { *@
+@*         position: relative; *@
+@*         z-index: 0;                /* lower than divider */ *@
+@*         overflow: auto; *@
+@*         min-height: 0;             /* allow proper shrinking */ *@
+@*     } *@
+@*     /* Dividers (visuals only; your draggable JS already wired them) */ *@
+@*     .v-divider, .h-divider { *@
+@*         background: linear-gradient(#ccd, #ccd) content-box, linear-gradient(#889, #889) padding-box; *@
+@*         border-radius: 4px; box-shadow: inset 0 0 0 1px #99a; opacity: .9; *@
+@*         margin: 0; *@
+@*     } *@
+@*     .v-divider { width: 6px; cursor: col-resize; margin: 0 6px; } *@
+@*     .h-divider { height: 6px; cursor: row-resize; margin: 6px 0; } *@
+@* *@
+@* </style> *@
