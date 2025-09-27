@@ -26,16 +26,16 @@ public class PutDocStore : IPutDocStore
     {
         if (!File.Exists(PutDocFilePath))
         {
-            var rootLeaf = new Leaf { Title = "Index" };
+            var rootCollection = new Collection { Title = "Index" };
             var firstPage = new Page { Title = "Welcome", Snippets = new() { new Snippet { Html = "<h2>Welcome to PutDoc</h2><p>Edit me in the HTML Editor.</p>" } } };
 
             var doc = new PutDocFile
             {
-                RootLeafId = rootLeaf.Id,
-                Leafs = { [rootLeaf.Id] = rootLeaf },
+                RootCollectionId = rootCollection.Id,
+                Collections = { [rootCollection.Id] = rootCollection },
                 Pages = { [firstPage.Id] = firstPage }
             };
-            rootLeaf.PageIds.Add(firstPage.Id);
+            rootCollection.PageIds.Add(firstPage.Id);
             await SaveAsync(doc);
             return doc;
         }

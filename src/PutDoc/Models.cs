@@ -4,16 +4,16 @@ public record PutDocFile
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; set; } = "PutDoc";
-    public Guid RootLeafId { get; set; }
-    public Dictionary<Guid, Leaf> Leafs { get; set; } = new();
+    public Guid RootCollectionId { get; set; }
+    public Dictionary<Guid, Collection> Collections { get; set; } = new();
     public Dictionary<Guid, Page> Pages { get; set; } = new();
 }
 
-public record Leaf
+public record Collection
 {
     public Guid Id { get; init; } = Guid.NewGuid();
-    public string Title { get; set; } = "Leaf";
-    public List<Guid> ChildLeafIds { get; set; } = new();
+    public string Title { get; set; } = "Collection";
+    public List<Guid> ChildCollectionIds { get; set; } = new();
     public List<Guid> PageIds { get; set; } = new();
 }
 

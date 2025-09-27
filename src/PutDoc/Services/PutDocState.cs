@@ -160,25 +160,25 @@ public class PutDocState
         Notify(); // triggers HtmlEditor to sync
     }
 
-    // Create a new child Leaf
-    public async Task<Guid> CreateLeaf(Guid parentLeafId, string title = "New Leaf")
+    // Create a new child Collection
+    public async Task<Guid> CreateCollection(Guid parentCollectionId, string title = "New Collection")
     {
-        var leaf = new Leaf { Title = title };
-        Doc.Leafs[leaf.Id] = leaf;
-        if (Doc.Leafs.TryGetValue(parentLeafId, out var parent))
-            parent.ChildLeafIds.Add(leaf.Id);
+        var collection = new Collection { Title = title };
+        Doc.Collections[collection.Id] = collection;
+        if (Doc.Collections.TryGetValue(parentCollectionId, out var parent))
+            parent.ChildCollectionIds.Add(collection.Id);
         await SaveAsync();
         Notify();
-        return leaf.Id;
+        return collection.Id;
     }
 
-// Create a new Page under a Leaf
-    public async Task<Guid> CreatePage(Guid leafId, string title = "New Page")
+// Create a new Page under a Collection
+    public async Task<Guid> CreatePage(Guid collectionId, string title = "New Page")
     {
         var page = new Page { Title = title, Snippets = new() { new Snippet() } };
         Doc.Pages[page.Id] = page;
-        if (Doc.Leafs.TryGetValue(leafId, out var leaf))
-            leaf.PageIds.Add(page.Id);
+        if (Doc.Collections.TryGetValue(collectionId, out var collection))
+            collection.PageIds.Add(page.Id);
         SelectedPageId = page.Id;
         SelectedSnippetId = page.Snippets.First().Id;
         await SaveAsync();
@@ -186,11 +186,11 @@ public class PutDocState
         return page.Id;
     }
 
-    public async Task RenameLeaf(Guid leafId, string title)
+    public async Task RenameCollection(Guid collectionId, string title)
     {
-        if (Doc.Leafs.TryGetValue(leafId, out var leaf))
+        if (Doc.Collections.TryGetValue(collectionId, out var collection))
         {
-            leaf.Title = title;
+            collection.Title = title;
             await SaveAsync();
             Notify();
         }
@@ -206,32 +206,32 @@ public class PutDocState
         }
     }
 
-// Reorder pages within a leaf
-    public async Task MovePage(Guid leafId, Guid pageId, int delta)
+// Reorder pages within a collection
+    public async Task MovePage(Guid collectionId, Guid pageId, int delta)
     {
-        if (!Doc.Leafs.TryGetValue(leafId, out var leaf)) return;
-        var i = leaf.PageIds.FindIndex(id => id == pageId);
+        if (!Doc.Collections.TryGetValue(collectionId, out var collection)) return;
+        var i = collection.PageIds.FindIndex(id => id == pageId);
         if (i < 0) return;
-        var j = Math.Clamp(i + delta, 0, leaf.PageIds.Count - 1);
+        var j = Math.Clamp(i + delta, 0, collection.PageIds.Count - 1);
         if (i == j) return;
-        (leaf.PageIds[i], leaf.PageIds[j]) = (leaf.PageIds[j], leaf.PageIds[i]);
+        (collection.PageIds[i], collection.PageIds[j]) = (collection.PageIds[j], collection.PageIds[i]);
         await SaveAsync();
         Notify();
     }
 
-    public async Task DeletePage(Guid leafId, Guid pageId)
+    public async Task DeletePage(Guid collectionId, Guid pageId)
     {
-        if (!Doc.Leafs.TryGetValue(leafId, out var leaf)) return;
-        leaf.PageIds.Remove(pageId);
+        if (!Doc.Collections.TryGetValue(collectionId, out var collection)) return;
+        collection.PageIds.Remove(pageId);
         Doc.Pages.Remove(pageId);
         if (SelectedPageId == pageId)
-            SelectedPageId = leaf.PageIds.LastOrDefault();
+            SelectedPageId = collection.PageIds.LastOrDefault();
         await SaveAsync();
         Notify();
     }
 
 // Clone a page
-    public async Task<Guid> ClonePage(Guid leafId, Guid pageId)
+    public async Task<Guid> ClonePage(Guid collectionId, Guid pageId)
     {
         if (!Doc.Pages.TryGetValue(pageId, out var page)) return Guid.Empty;
         var clone = new Page
@@ -240,15 +240,15 @@ public class PutDocState
             Snippets = page.Snippets.Select(s => s with { Id = Guid.NewGuid() }).ToList()
         };
         Doc.Pages[clone.Id] = clone;
-        if (Doc.Leafs.TryGetValue(leafId, out var leaf))
-            leaf.PageIds.Insert(leaf.PageIds.IndexOf(pageId) + 1, clone.Id);
+        if (Doc.Collections.TryGetValue(collectionId, out var collection))
+            collection.PageIds.Insert(collection.PageIds.IndexOf(pageId) + 1, clone.Id);
         await SaveAsync();
         Notify();
         return clone.Id;
     }
 
-// 👉 Paste HTML into a Leaf: new Page with one Snippet from clipboard HTML
-    public async Task<Guid> PasteSnippetIntoLeaf(Guid leafId, string html, string? pageTitle = null)
+// 👉 Paste HTML into a Collection: new Page with one Snippet from clipboard HTML
+    public async Task<Guid> PasteSnippetIntoCollection(Guid collectionId, string html, string? pageTitle = null)
     {
         if (string.IsNullOrWhiteSpace(html)) return Guid.Empty;
 
@@ -264,8 +264,8 @@ public class PutDocState
             Snippets = new() { new Snippet { Html = cleaned } }
         };
         Doc.Pages[page.Id] = page;
-        if (Doc.Leafs.TryGetValue(leafId, out var leaf))
-            leaf.PageIds.Add(page.Id);
+        if (Doc.Collections.TryGetValue(collectionId, out var collection))
+            collection.PageIds.Add(page.Id);
 
         SelectedPageId = page.Id;
         SelectedSnippetId = page.Snippets.First().Id;

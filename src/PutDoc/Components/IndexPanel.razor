@@ -7,58 +7,58 @@
 @if (Root is not null)
 {
     <div class="text-sm">
-        @RenderLeaf(Root)
+        @RenderCollection(Root)
     </div>
 }
-else { <em>Missing root leaf.</em> }
+else { <em>Missing root collection.</em> }
 
 @code {
-    // one open menu (leaf or page) at a time
+    // one open menu (collection or page) at a time
     Guid? _menuOpenFor;
 
-    Leaf? Root => State.Doc.Leafs.TryGetValue(State.Doc.RootLeafId, out var l) ? l : null;
+    Collection? Root => State.Doc.Collections.TryGetValue(State.Doc.RootCollectionId, out var l) ? l : null;
 
     void ToggleMenuFor(Guid id) => _menuOpenFor = (_menuOpenFor == id) ? null : id;
 
     //Dictionary<bool, string> up_dn = new Dictionary<bool, string>() { { true, "△" }, {false, "▽"} };
     Dictionary<bool, string> up_dn = new Dictionary<bool, string>() { { true, "▲" }, {false, "▼"} };
     
-    RenderFragment RenderLeaf(Leaf leaf) => __builder =>
+    RenderFragment RenderCollection(Collection collection) => __builder =>
     {
-        <details open class="leaf">
-            <summary class="leaf-row">
-                <button type="button" class="btn drop" @onclick="() => ToggleMenuFor(leaf.Id)">
-                    @(up_dn[_menuOpenFor == leaf.Id])
+        <details open class="collection">
+            <summary class="collection-row">
+                <button type="button" class="btn drop" @onclick="() => ToggleMenuFor(collection.Id)">
+                    @(up_dn[_menuOpenFor == collection.Id])
                 </button>
                 <span>📁</span>
-                <input value="@leaf.Title"
-                       @onchange="(e => State.RenameLeaf(leaf.Id, e.Value?.ToString() ?? leaf.Title))"
-                       class="leaf-title" />
+                <input value="@collection.Title"
+                       @onchange="(e => State.RenameCollection(collection.Id, e.Value?.ToString() ?? collection.Title))"
+                       class="collection-title" />
             </summary>
 
-            @if (_menuOpenFor == leaf.Id)
+            @if (_menuOpenFor == collection.Id)
             {
                 <div class="menu-popover">
-                    <button type="button" class="btn" @onclick="() => State.CreatePage(leaf.Id)">+ Page</button>
-                    <button type="button" class="btn" @onclick="() => State.CreateLeaf(leaf.Id)">+ Leaf</button>
+                    <button type="button" class="btn" @onclick="() => State.CreatePage(collection.Id)">+ Page</button>
+                    <button type="button" class="btn" @onclick="() => State.CreateCollection(collection.Id)">+ Collection</button>
                 </div>
             }
 
-            @if (leaf.ChildLeafIds?.Count > 0)
+            @if (collection.ChildCollectionIds?.Count > 0)
             {
-                <div class="child-leafs">
-                    @foreach (var cid in leaf.ChildLeafIds)
+                <div class="child-collections">
+                    @foreach (var cid in collection.ChildCollectionIds)
                     {
-                        if (!State.Doc.Leafs.TryGetValue(cid, out var child)) continue;
-                        @RenderLeaf(child)
+                        if (!State.Doc.Collections.TryGetValue(cid, out var child)) continue;
+                        @RenderCollection(child)
                     }
                 </div>
             }
 
-            @if (leaf.PageIds?.Count > 0)
+            @if (collection.PageIds?.Count > 0)
             {
                 <ul class="page-list">
-                    @foreach (var pid in leaf.PageIds)
+                    @foreach (var pid in collection.PageIds)
                     {
                         if (!State.Doc.Pages.TryGetValue(pid, out var p)) continue;
                         var active = State.SelectedPageId == pid;
@@ -77,10 +77,10 @@ else { <em>Missing root leaf.</em> }
                             {
                                 <div class="menu-popover">
                                     <button type="button" class="btn" title="Rename" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
-                                    <button type="button" class="btn" title="Move Up" @onclick="() => State.MovePage(leaf.Id, pid, -1)">↑</button>
-                                    <button type="button" class="btn" title="Move Down" @onclick="() => State.MovePage(leaf.Id, pid, +1)">↓</button>
-                                    <button type="button" class="btn" title="Clone" @onclick="() => State.ClonePage(leaf.Id, pid)">⧉ Clone</button>
-                                    <button type="button" class="btn danger" title="Delete" @onclick="() => State.DeletePage(leaf.Id, pid)">🗑 Delete</button>
+                                    <button type="button" class="btn" title="Move Up" @onclick="() => State.MovePage(collection.Id, pid, -1)">↑</button>
+                                    <button type="button" class="btn" title="Move Down" @onclick="() => State.MovePage(collection.Id, pid, +1)">↓</button>
+                                    <button type="button" class="btn" title="Clone" @onclick="() => State.ClonePage(collection.Id, pid)">⧉ Clone</button>
+                                    <button type="button" class="btn danger" title="Delete" @onclick="() => State.DeletePage(collection.Id, pid)">🗑 Delete</button>
                                     <span class="sep"></span>
                                     <button type="button" class="btn primary" title="Paste HTML as new snippet" @onclick="() => PasteIntoPage(pid)">📋 Paste into Page</button>
                                 </div>
@@ -109,10 +109,10 @@ else { <em>Missing root leaf.</em> }
 
 <style>
 .drop { min-width: 2rem; color: #8A8; }
-.leaf { font-weight:700; background-color: rgba(196,196,128,0.2);
+.collection { font-weight:700; background-color: rgba(196,196,128,0.2);
         border:2px dashed #444; border-radius:16px; padding:.25rem .5rem; }
-.leaf-row { display:flex; align-items:center; gap:.5rem; }
-.leaf-title { border:0; border-bottom:1px dashed #ccc; outline:none; background:transparent; width:14rem; }
+.collection-row { display:flex; align-items:center; gap:.5rem; }
+.collection-title { border:0; border-bottom:1px dashed #ccc; outline:none; background:transparent; width:14rem; }
 .page-list { list-style:none; padding-left:1rem; margin:.25rem 0; }
 .page-item { margin:.25rem 0; border-radius:.5rem; }
 .page-item.active { font-weight:700; border:1px solid #333; background-color: rgba(196,128,96,0.2); }
@@ -125,5 +125,5 @@ else { <em>Missing root leaf.</em> }
 .btn:hover { background:#f4f4f4; }
 .btn.primary { border-color:#5b9; }
 .btn.danger { border-color:#c77; }
-.child-leafs { margin-left:1rem; }
+.child-collections { margin-left:1rem; }
 </style>
