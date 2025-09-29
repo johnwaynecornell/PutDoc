@@ -277,4 +277,139 @@
         ta.dispatchEvent(new Event('input', { bubbles: true }));
         ta.focus();
     };
+
+    window.putdocEnh = (function () {
+        let started = false;
+
+        async function ensureBlazorStarted() {
+            if (started) return;
+            started = true;
+            /* await Blazor.start(); */
+        }
+
+        // Define a custom element that mounts a Blazor component into itself
+        class PutDocToolbar extends HTMLElement {
+            async connectedCallback() {
+                // Create a host for the Blazor root component
+                if (!this._host) {
+                    this._host = document.createElement('div');
+                    this.appendChild(this._host);
+                }
+                await ensureBlazorStarted();
+                const parms = {
+                    SnippetId: this.getAttribute('snippet-id'),
+                    Puid: this.getAttribute('puid'),
+                    Kind: this.getAttribute('kind')
+                };
+                
+                // Mount the Blazor component into this element
+                Blazor.rootComponents.add(this._host, 'putdoc.toolbar', parms);
+            }
+        }
+        customElements.get('putdoc-toolbar') || customElements.define('putdoc-toolbar', PutDocToolbar);
+        
+        // Ensure container can host an absolutely positioned toolbar
+        function ensurePositioned(el) {
+            const cs = getComputedStyle(el);
+            if (cs.position === 'static') el.style.position = 'relative';
+        }
+
+        // Ensure element has a puid; use data-puid attribute
+        function ensurePuid(el) {
+            if (!el.getAttribute('data-puid')) {
+                el.setAttribute('data-puid', crypto.randomUUID());
+            }
+            return el.getAttribute('data-puid');
+        }
+
+        // Public: copy outerHTML of element by puid
+        async function copyByPuid(puid) {
+            const target = document.querySelector(`[data-puid="${puid}"]`);
+            if (!target) return;
+            const html = target.outerHTML;
+            try {
+                await navigator.clipboard.writeText(html);
+            } catch {
+                // fallback
+                const ta = document.createElement('textarea');
+                ta.value = html; document.body.appendChild(ta);
+                ta.select(); document.execCommand('copy'); ta.remove();
+            }
+        }
+
+        // Enhance a container: add toolbar to each recognized element
+        function enhance(container, snippetId) {
+            if (!container) return;
+            const selectors = '.slf-card, .slf-brick, .prompt_area, pre';
+            container.querySelectorAll(selectors).forEach(el => {
+                if (el.querySelector(':scope > putdoc-toolbar')) return; // already enhanced for this el
+
+                ensurePositioned(el);
+                const puid = ensurePuid(el);
+                const toolbar = document.createElement('putdoc-toolbar');
+                toolbar.setAttribute('snippet-id', snippetId);
+                toolbar.setAttribute('puid', puid);
+                toolbar.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
+                el.prepend(toolbar); // place at top-right (absolute inside InlineToolbar)
+            });
+        }
+
+        function enhanceById(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const sid = el.getAttribute('data-snippet-id') || '';
+            enhance(el, sid);
+        }
+
+        // Watch for dynamic changes (optional)
+        function observe(container, snippetId) {
+            const mo = new MutationObserver(() => enhance(container, snippetId));
+            mo.observe(container, { childList: true, subtree: true });
+            enhance(container, snippetId);
+            return mo;
+        }
+
+        function observeById(id) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const sid = el.getAttribute('data-snippet-id') || '';
+            observe(el, sid);
+        }
+
+
+        return {
+            enhance,
+            observe,
+            copyByPuid,
+            enhanceById,
+            observeById
+        };
+    })();
+    
+    (function () {
+        function onReady(fn) {
+            if (document.readyState !== 'loading') fn();
+            else document.addEventListener('DOMContentLoaded', fn);
+        }
+
+        onReady(async () => {
+            // Start Blazor once
+            try {
+                if (!window.__pdBlazorStarted) {
+                    window.__pdBlazorStarted = true;
+                    await Blazor.start();  // <-- critical when autostart="false"
+                }
+            } catch (e) {
+                console.error('Blazor.start failed', e);
+            }
+
+            // Your initializers (safe if they’re idempotent)
+            //try { window.putdocHeader?.init(); } catch {}
+            try {
+                const layout = document.getElementById('putdocLayout');
+                if (layout) window.putdocLayout?.initSplitters(layout);
+            } catch {}
+        });
+    })(); 
+
 })();

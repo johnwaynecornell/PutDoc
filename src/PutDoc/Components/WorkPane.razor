@@ -6,62 +6,44 @@
 
 @if (State.CurrentPage() is { } _page)
 {
-    <div class="mb-2">
-        <strong>Page:</strong> @_page.Title
-    </div>
+    <div class="mb-2"><strong>Page:</strong> @_page.Title</div>
 
     @foreach (var snip in _page.Snippets)
     {
-        var active = State.SelectedSnippetId == snip.Id;
-        <div style="border:1px solid #ddd; border-radius: .5rem; margin-bottom: .75rem;">
-            <div style="padding: .75rem; background: #f8f8f8;">
-                <div class="prose max-w-none">
-                    <SnippetInteractive Html="@snip.Html" SnippetId="@snip.Id" />
+        <div @key="snip.Id" style="border:1px solid #ddd; border-radius:.5rem; margin-bottom:.75rem;">
+            <div style="padding:.75rem; background:#f8f8f8;">
+                <div class="workpane-snippet"
+                     id="@($"snip-{snip.Id}")"
+                     data-snippet-id="@snip.Id">
+                    @((MarkupString)(snip.Html ?? ""))
                 </div>
             </div>
+
             <div style="padding:.5rem; display:flex; gap:.5rem; border-top:1px solid #eee;">
-                <button type="button" class="btn" @onclick="() => State.AddSnippetBelow(snip.Id)">＋</button>
-                <button type="button" class="btn" @onclick="() => State.DeleteSnippet(snip.Id)">Delete</button>
-                <button type="button" class="btn" @onclick="() => State.CloneSnippet(snip.Id)">Clone</button>
-                <button type="button" class="btn" @onclick="() => CopyToClipboard(snip.Html)">Copy</button>
-                <button type="button" class="btn" @onclick="() => State.MoveSnippet(snip.Id, -1)">↑</button>
-                <button type="button" class="btn" @onclick="() => State.MoveSnippet(snip.Id, +1)">↓</button>
-                <button type="button" class="btn @(active ? "font-bold" : "")"
-                        @onclick="() => State.SelectSnippet(snip.Id)">
+                <button type='button' class='btn' @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button>
+                <button type='button' class='btn' @onclick='() => State.DeleteSnippet(snip.Id)'>Delete</button>
+                <button type='button' class='btn' @onclick='() => State.CloneSnippet(snip.Id)'>Clone</button>
+                <button type='button' class='btn' @onclick='() => CopyToClipboard(snip.Html ?? "")'>Copy</button>
+                <button type='button' class='btn' @onclick='() => State.MoveSnippet(snip.Id, -1)'>↑</button>
+                <button type='button' class='btn' @onclick='() => State.MoveSnippet(snip.Id, +1)'>↓</button>
+
+                <button type='button'
+                        class='btn @(State.SelectedSnippetId == snip.Id ? "font-bold" : "")'
+                        @onclick='() => State.SelectSnippet(snip.Id)'>
                     Edit
                 </button>
-                
-                <button type="button" class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Card)">+ slf-card</button>
-                <button type="button" class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Brick)">+ slf-brick</button>
-                <button type="button" class="btn" @onclick="() => InsertTemplate(snip.Id, TemplateKind.Prompt)">+ prompt</button>
-                
-                @code {
-                    enum TemplateKind { Card, Brick, Prompt }
 
-                    async Task InsertTemplate(Guid snippetId, TemplateKind kind)
-                    {
-                        var page = State.CurrentPage(); if (page is null) return;
-                        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return;
-
-                        var html = snip.Html ?? "";
-                        var add = kind switch
-                        {
-                            TemplateKind.Card => """<div class="slf-card"><h3>Title</h3><p><b>Purpose</b>: <span>…</span></p><div><b>Content</b>: <div>…</div></div></div>""",
-                            TemplateKind.Brick => """<div class="slf-brick"><h3>BRICK</h3><p><b>Definition</b>: <span>…</span></p><div><b>Example</b>: <div>…</div></div></div>""",
-                            TemplateKind.Prompt => """<div class="prompt_area"><h3>Prompt</h3><p>…</p></div>""",
-                            _ => ""
-                        };
-
-                        await State.SetSnippetHtml(html + "\n" + add, false);
-                        State.SelectSnippet(snippetId);
-                    }
-                }
+                <button type='button' class='btn' @onclick='() => InsertTemplate(snip.Id, TemplateKind.Card)'>+ slf-card</button>
+                <button type='button' class='btn' @onclick='() => InsertTemplate(snip.Id, TemplateKind.Brick)'>+ slf-brick</button>
+                <button type='button' class='btn' @onclick='() => InsertTemplate(snip.Id, TemplateKind.Prompt)'>+ prompt</button>
             </div>
         </div>
     }
 
     <div>
-        <button type="button" class="btn" @onclick="() => State.AddSnippetBelow(_page.Snippets.LastOrDefault()?.Id ?? Guid.Empty)">＋ Add snippet</button>
+        <button type="button" class="btn" @onclick="() => State.AddSnippetBelow(_page.Snippets.LastOrDefault()?.Id ?? Guid.Empty)">
+            ＋ Add snippet
+        </button>
     </div>
 }
 else
@@ -70,32 +52,46 @@ else
 }
 
 <style>
-.btn { padding: .25rem .5rem; border:1px solid #ccc; border-radius: .375rem; background:#fff; cursor:pointer; }
+.btn { padding:.25rem .5rem; border:1px solid #ccc; border-radius:.375rem; background:#fff; cursor:pointer; }
 .btn:hover { background:#f4f4f4; }
-.font-bold { font-weight: 700; }
+.font-bold { font-weight:700; }
 </style>
 
 @code {
-    async Task CopyToClipboard(string html)
-    {
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", html ?? "");
-    }
-}
+    enum TemplateKind { Card, Brick, Prompt }
 
-@code {
-    protected override void OnInitialized()
+    async Task CopyToClipboard(string html) =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", html);
+
+    async Task InsertTemplate(Guid snippetId, TemplateKind kind)
     {
-        State.Changed += OnStateChanged;
+        var page = State.CurrentPage(); if (page is null) return;
+        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return;
+
+        var add = kind switch
+        {
+            TemplateKind.Card   => """<div class="slf-card"><h3>Title</h3><p><b>Purpose</b>: <span>…</span></p><div><b>Content</b>: <div>…</div></div></div>""",
+            TemplateKind.Brick  => """<div class="slf-brick"><h3>BRICK</h3><p><b>Definition</b>: <span>…</span></p><div><b>Example</b>: <div>…</div></div></div>""",
+            TemplateKind.Prompt => """<div class="prompt_area"><h3>Prompt</h3><p>…</p></div>""",
+            _ => ""
+        };
+
+        await State.SetSnippetHtml((snip.Html ?? "") + "\n" + add, isRawFromEditor: false);
+        State.SelectSnippet(snippetId);
     }
 
-    void OnStateChanged()
-    {
-        // marshal back to UI thread
-        _ = InvokeAsync(StateHasChanged);
-    }
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+    void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() => State.Changed -= OnStateChanged;
 
-    public void Dispose()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        State.Changed -= OnStateChanged;
+        // Enhance each snippet by its DOM id
+        var page = State.CurrentPage(); if (page is null) return;
+        foreach (var snip in page.Snippets)
+        {
+            var domId = $"snip-{snip.Id}";
+            await JS.InvokeVoidAsync("putdocEnh.observeById", domId);
+        }
     }
 }

@@ -1,7 +1,10 @@
 // Services/HtmlTransformService.cs
+
 using AngleSharp;
 using AngleSharp.Dom;
-using AngleSharp.Html; // for .ToHtml()
+using AngleSharp.Html;
+using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop; // for .ToHtml()
 
 namespace PutDoc.Services;
 //pc06d9280230f4fe6b9480035d0726cd6
@@ -83,7 +86,7 @@ public static class HtmlTransformService
             case "edit":
                 state.BeginSelectionEdit(snippetId, puid /* store puid here */, target.OuterHtml);
                 return true;
-
+               
             case "clone":
                 target.Insert(AdjacentPosition.AfterEnd, target.OuterHtml);
                 changed = true;

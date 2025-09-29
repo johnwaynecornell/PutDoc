@@ -13,7 +13,7 @@ public class PutDocState
 
     // NEW: change event
     public event Action? Changed;
-    void Notify() => Changed?.Invoke();
+    public void Notify() => Changed?.Invoke();
 
     // NEW: select snippet + notify others to re-render
     public void SelectSnippet(Guid? id)

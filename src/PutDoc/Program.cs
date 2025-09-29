@@ -1,14 +1,26 @@
+using Microsoft.AspNetCore.Components.Web;
+using PutDoc;
+using PutDoc.Components;
 using PutDoc.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add: command-line + env support already merges into Configuration
-// In PutDocStore ctor you already read cfg["PutDocRootPath"].
-// Also read an env var PUTDOC_ROOT if present:
+// Services
 builder.Configuration.AddEnvironmentVariables(prefix: "PUTDOC_");
 
-builder.Services.AddRazorPages();
-builder.Services.AddServerSideBlazor();
+builder.Services
+    .AddRazorComponents()
+    .AddInteractiveServerComponents();   // ← enables Blazor Server interactivity
+
+// 👇 enable JS-activated root components
+builder.Services.AddServerSideBlazor(options =>
+{
+    // identifier can be any string you choose
+    options.RootComponents.RegisterForJavaScript<InlineToolbar>(
+        identifier: "putdoc.toolbar"
+        // , javaScriptInitializer: "putdocInit"  // optional initializer hook
+    );
+});
 
 builder.Services.AddSingleton<IAngleSoftFilter, AngleSoftFilter>();
 builder.Services.AddSingleton<IPutDocStore, PutDocStore>();
@@ -25,7 +37,10 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseRouting();
 
-app.MapBlazorHub();
-app.MapFallbackToPage("/_Host");
+app.UseAntiforgery();
+
+// ✅ New endpoint-style hosting (no _Host.cshtml, no MapBlazorHub)
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.Run();

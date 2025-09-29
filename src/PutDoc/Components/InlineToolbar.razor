@@ -1,0 +1,73 @@
+@namespace PutDoc.Components
+@inject PutDoc.Services.PutDocState State
+@using PutDoc.Services
+
+<div class="pd-inline-toolbar @(open ? "open" : null)">
+    <button type="button" class="pd-gear" title="Actions" @onclick="Toggle">⋯</button>
+
+    @if (open)
+    {
+        <div class="pd-toolbar-row">
+            <button type="button" title="Copy HTML" @onclick='() => Apply("copy")'>Copy</button>
+            <!-- <button type="button" title="Edit fragment" @onclick='Edit'>Edit</button> -->
+            <button type="button" title="Edit fragment" @onclick='() => Apply("edit")'>Edit</button>
+            <button type="button" title="Clone" @onclick='() => Apply("clone")'>Clone</button>
+            <button type="button" class="danger" title="Delete" @onclick='() => Apply("delete")'>Del</button>
+            <button type="button" title="Move up" @onclick='() => Apply("move-up")'>↑</button>
+            <button type="button" title="Move down" @onclick='() => Apply("move-down")'>↓</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid SnippetId { get; set; }
+    [Parameter] public string? Puid { get; set; }    // data-puid value
+    [Parameter] public string? Kind { get; set; }    // "slf-card"/"prompt_area"/...
+
+    bool open;
+
+    void Toggle() => open = !open;
+
+    
+    
+    async Task Copy()
+    {
+        //State.SelectSnippet(SnippetId);
+        if (Puid is null) return;
+        
+        Console.WriteLine("###");
+        Console.WriteLine(State.Selection.Html);
+        Console.WriteLine("###");
+        
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", State.Selection.Html);
+        //await JS.InvokeVoidAsync("putdoc.writeClipboardText", State.Selection.Html); 
+        //
+        //await JS.InvokeVoidAsync("putdocEnh.copyByPuid", Puid);
+    }
+
+    async Task Edit()
+    {
+        if (Puid is null) return;
+        
+        State.BeginSelectionEdit(SnippetId, Puid, State.Selection.Html ?? "");
+        // Notify WorkPane/Editor to reflect fragment mode
+        State.Notify();
+    }
+
+    async Task Apply(string action)
+    {
+        if (Puid is null) return;
+        // apply DOM transform (clone/delete/up/down) then save back
+        State.BeginSelectionEdit(SnippetId, Puid, State.Selection.Html ?? "");
+
+        var ok = await HtmlTransformService.ApplyAsync(State, SnippetId, action, Puid);
+        if (ok)
+        {
+            // Ensure editor sees this as an external change
+            await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
+            State.Notify();
+        }
+    }
+
+    [Inject] IJSRuntime JS { get; set; } = default!;
+}
