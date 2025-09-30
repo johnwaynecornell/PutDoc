@@ -25,6 +25,7 @@ public class PutDocState
 
     public void SelectPage(Guid id)
     {
+        CancelSelectionEdit();
         SelectedPageId = id;
         SelectedSnippetId = CurrentPage()?.Snippets.FirstOrDefault()?.Id;
         Notify();
