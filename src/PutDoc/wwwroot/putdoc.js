@@ -280,7 +280,7 @@
 
     window.putdocEnh = (function () {
         let started = false;
-
+        
         async function ensureBlazorStarted() {
             if (started) return;
             started = true;

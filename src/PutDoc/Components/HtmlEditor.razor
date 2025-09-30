@@ -29,12 +29,8 @@
     <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
 
     <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-    <!-- <button type="button" class="btn" @onclick="FormatCurrent">Format HTML</button> -->
-
+    <!-- <button type="button" class="btn" @onclick="Format HTML">Format HTML</button> -->
 </div>
-
-
-<!--
 
 <textarea @ref="_ta"
           class="w-full"
@@ -42,16 +38,7 @@
           @bind="editorText"
           @bind:event="oninput"
           @bind:after="OnBoundChanged"
-          @onkeydown="OnKeyDown"
-          @onkeydown:preventDefault="@PreventForKey">
-</textarea> -->
-
-<textarea @ref="_ta"
-          class="w-full"
-          style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
-          @bind="editorText"
-          @bind:event="oninput"
-          @bind:after="OnBoundChanged">
+          disabled="@_isSaving">      @* 🔒 lock input during save *@
 </textarea>
 
 @code {
@@ -64,7 +51,6 @@
     }
 }
 
-
 <div style="font-size:.8rem; color:#666; margin-top:.5rem;">
     @_statusText • Saved through AngleSoft filter.
 </div>
@@ -75,6 +61,9 @@
     private ElementReference _ta;
     private bool _isFragmentMode;
     private Guid? _lastSnippetId;
+
+    // 🔒 saving lock
+    private bool _isSaving = false;
 
     // debounce timer (autosave)
     private System.Timers.Timer? _debounce;
@@ -94,7 +83,6 @@
     protected override void OnInitialized()
     {
         State.Changed += OnStateChanged;
-        // initial sync
         _ = SyncFromStateAsync(force:true);
     }
 
@@ -109,8 +97,8 @@
     private async Task ToggleScope()
     {
         _fragScope = (_fragScope == PutDocState.FragmentScope.Inner) ? PutDocState.FragmentScope.Outer : PutDocState.FragmentScope.Inner;
-        await State.SetSelectionScope(_fragScope);        // updates Selection.Html
-        await SyncFromStateAsync(force: true);            // refresh editorText
+        await State.SetSelectionScope(_fragScope);
+        await SyncFromStateAsync(force: true);
     }
 
     private async Task SyncFromStateAsync(bool force)
@@ -149,7 +137,8 @@
     
     void OnBoundChanged()
     {
-        // exactly what your OnTextChanged() does
+        if (_isSaving) return;   // 🔒 don't schedule saves while locked
+
         _saveState = SaveState.Typing;
         _debounce?.Stop();
         _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
@@ -158,24 +147,6 @@
         _debounce.Start();
     }
 
-    // Typing is handled by @bind; we only manage debounce/save + status
-    private void OnTextChanged()
-    {
-        _saveState = SaveState.Typing;
-        _debounce?.Stop();
-        _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
-        _debounce.Elapsed -= DebouncedSave; // avoid multiple subscriptions
-        _debounce.Elapsed += DebouncedSave;
-        _debounce.Start();
-    }
-
-    // Hook the bound change (oninput) to our debounce method
-    // (Blazor doesn't provide a direct "oninput changed" callback for @bind,
-    //  so we can wire it by adding @oninput and calling this method if needed.
-    //  Alternatively, we can rely on OnKeyDown to mark Typing and the timer to save.)
-    // If you want a strict hook, add: @oninput="@(e => OnTextChanged())" to the <textarea>.
-    // For clarity, let's do it:
-    
     private async void DebouncedSave(object? sender, System.Timers.ElapsedEventArgs e)
     {
         await InvokeAsync(SaveAsync);
@@ -183,15 +154,15 @@
 
     private async Task SaveAsync()
     {
-        // Preserve caret around explicit rewrites
+        // Preserve caret before locking
         var sel = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
+        _isSaving = true;                 // 🔒 lock input
         _saveState = SaveState.Saving;
         StateHasChanged();
 
         if (_isFragmentMode && State.Selection.IsActive)
         {
-            
             var page = State.CurrentPage();
             var snip = page?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
             if (snip is not null)
@@ -205,9 +176,8 @@
                 if (newHtml is not null)
                     await State.SetSnippetHtml(newHtml, isRawFromEditor: false);
             }
-            // keep selection active, refresh its content from state
+            // refresh live fragment from state
             await State.BeginFragmentEdit(State.Selection.SnippetId, State.Selection.Selector!, State.Selection.Scope);
-
         }
         else
         {
@@ -216,37 +186,18 @@
             editorText = cleaned;
         }
 
-        
-        
         _saveState = SaveState.Saved;
+        _isSaving = false;                // 🔓 unlock
         StateHasChanged();
 
         // Restore caret
         await JS.InvokeVoidAsync("putdocText.setSel", _ta, sel.Start, sel.End);
     }
 
-    private bool PreventForKey { get; set; }
-    
-    private async Task OnKeyDown(KeyboardEventArgs e)
-    {
-        // Tab / Shift+Tab indent without losing caret
-        if (e.Key == "Tab")
-        {
-            PreventForKey = true;
-            try { await JS.InvokeVoidAsync("putdocText.indent", _ta, e.ShiftKey); }
-            catch { /* no-op fallback if JS not loaded */ }
-            // mark as typing (kicks the debounce)
-            _saveState = SaveState.Typing;
-            _debounce?.Stop();
-            _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
-            _debounce.Elapsed -= DebouncedSave;
-            _debounce.Elapsed += DebouncedSave;
-            _debounce.Start();
-        } else PreventForKey = false;
-    }
-
     private async Task InsertTpl(string kind)
     {
+        if (_isSaving) return; // 🔒 ignore inserts while locked
+
         var tpl = kind switch
         {
             "card"   => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
@@ -257,7 +208,7 @@
             _        => "<p>...</p>"
         };
         await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, tpl);
-        // treat as typing
+
         _saveState = SaveState.Typing;
         _debounce?.Stop();
         _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
@@ -279,6 +230,5 @@
         }
     }
 
-    // Strongly-typed sel DTO for JS interop
     public record TextSelection(int Start, int End);
 }
