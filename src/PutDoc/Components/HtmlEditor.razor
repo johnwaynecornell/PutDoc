@@ -35,10 +35,9 @@
 <textarea @ref="_ta"
           class="w-full"
           style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
-          @bind="editorText"
-          @bind:event="oninput"
-          @bind:after="OnBoundChanged"
-          disabled="@_isSaving">      @* 🔒 lock input during save *@
+value="@editorText" 
+@oninput="OnInput" >
+@* disabled="@_isSaving">      $1$ 🔒 lock input during save */ *@
 </textarea>
 
 @code {
@@ -109,11 +108,16 @@
         if (_isFragmentMode)
         {
             _fragScope = State.Selection.Scope;
-            editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
-            _lastSnippetId = State.Selection.SnippetId;
-            _lastSeenContentVersion = State.ContentVersion;
-            _saveState = SaveState.Idle;
-            StateHasChanged();
+
+            // ⬇️ don’t stomp user edits during a save
+            if (!_isSaving)
+            {
+                editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
+                _lastSnippetId = State.Selection.SnippetId;
+                _lastSeenContentVersion = State.ContentVersion;
+                _saveState = SaveState.Idle;
+                StateHasChanged();
+            }
             return;
         }
 
@@ -125,7 +129,7 @@
             State.ContentVersion != _lastSeenContentVersion &&
             sid == _lastSnippetId;
 
-        if (force || sid != _lastSnippetId || wasFragment || externalChangeOnSameSnippet)
+        if ((force || sid != _lastSnippetId || wasFragment || externalChangeOnSameSnippet) && !_isSaving)
         {
             editorText = await HtmlPuid.StripPuidsAsync(snip?.Html ?? "");
             _lastSnippetId = sid;
@@ -134,8 +138,8 @@
             StateHasChanged();
         }
     }
-    
-    void OnBoundChanged()
+
+    void OnTextChanged()
     {
         if (_isSaving) return;   // 🔒 don't schedule saves while locked
 
@@ -146,21 +150,38 @@
         _debounce.Elapsed += DebouncedSave;
         _debounce.Start();
     }
+    
+    // counts each user input; used to detect typing during save
+    private long _inputSerial = 0;
+    private long _inputSerialAtSave = 0;
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        editorText = e.Value?.ToString() ?? "";
+        _inputSerial++;        // user typed
+        OnTextChanged();       // kick debounce (same as your old OnBoundChanged)
+    }
+
 
     private async void DebouncedSave(object? sender, System.Timers.ElapsedEventArgs e)
     {
         await InvokeAsync(SaveAsync);
     }
 
+    string _savingSnapshot = "";
+    
     private async Task SaveAsync()
     {
-        // Preserve caret before locking
         var sel = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
-        _isSaving = true;                 // 🔒 lock input
+        _isSaving = true;
+        _savingSnapshot = editorText; // snapshot what we’re saving
+        _inputSerialAtSave = _inputSerial; // snapshot typing count
         _saveState = SaveState.Saving;
         StateHasChanged();
 
+        bool userTyped = false;
+        
         if (_isFragmentMode && State.Selection.IsActive)
         {
             var page = State.CurrentPage();
@@ -170,29 +191,45 @@
                 var newHtml = await HtmlTransformService.ReplaceFragmentByPuidAsync(
                     snip.Html ?? "",
                     State.Selection.Selector!,
-                    editorText,
+                    _savingSnapshot!, // save against snapshot
                     replaceOuter: State.Selection.Scope == PutDocState.FragmentScope.Outer);
 
                 if (newHtml is not null)
                     await State.SetSnippetHtml(newHtml, isRawFromEditor: false);
             }
-            // refresh live fragment from state
+
+            // Refresh selection state, but don’t push into editor if the user typed
             await State.BeginFragmentEdit(State.Selection.SnippetId, State.Selection.Selector!, State.Selection.Scope);
+            if (_inputSerial == _inputSerialAtSave)
+            {
+                // no new typing → safe to replace editorText from state
+                editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
+            }
+            else userTyped = true;
+            // else: user typed → keep their current editorText
         }
         else
         {
-            await State.SetSnippetHtml(editorText, isRawFromEditor: true);
-            var cleaned = await HtmlPuid.StripPuidsAsync(State.CurrentSnippet()?.Html ?? "");
-            editorText = cleaned;
+            // whole-snippet mode
+            await State.SetSnippetHtml(_savingSnapshot!, isRawFromEditor: true);
+
+            // only normalize editorText if no new typing since save began
+            if (_inputSerial == _inputSerialAtSave)
+            {
+                var cleaned = await HtmlPuid.StripPuidsAsync(State.CurrentSnippet()?.Html ?? "");
+                editorText = cleaned;
+            }
+            else userTyped = true;
+            // else: user typed → keep what’s on screen
         }
 
         _saveState = SaveState.Saved;
-        _isSaving = false;                // 🔓 unlock
+        _isSaving = false;
         StateHasChanged();
 
-        // Restore caret
-        await JS.InvokeVoidAsync("putdocText.setSel", _ta, sel.Start, sel.End);
+        if (!userTyped) await JS.InvokeVoidAsync("putdocText.setSel", _ta, sel.Start, sel.End);
     }
+
 
     private async Task InsertTpl(string kind)
     {
