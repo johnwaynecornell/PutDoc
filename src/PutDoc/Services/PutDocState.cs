@@ -129,6 +129,8 @@ public class PutDocState
         await SaveAsync();
     }
 
+    public enum FragmentScope { Inner, Outer }
+
     // 🔸 selection edit model
     public sealed class SelectionEdit
     {
@@ -136,6 +138,8 @@ public class PutDocState
         public Guid SnippetId { get; set; }
         public string Selector { get; set; } = "";
         public string Html { get; set; } = ""; // fragment outerHTML
+        
+        public FragmentScope Scope { get; set; } = FragmentScope.Inner;
     }
 
     public SelectionEdit Selection { get; } = new(); // expose read-only object
@@ -149,7 +153,39 @@ public class PutDocState
         SelectedSnippetId = snippetId; // make sure editor focuses this snippet
         Notify();
     }
+    
+    public async Task BeginFragmentEdit(Guid snippetId, string puid, FragmentScope scope = FragmentScope.Inner)
+    {
+        // close other selection if different
+        if (Selection.IsActive && (Selection.SnippetId != snippetId || Selection.Selector != puid))
+            CancelSelectionEdit();
 
+        var page = CurrentPage(); if (page is null) return;
+        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return;
+
+        var fragHtml = scope == FragmentScope.Outer
+            ? await HtmlTransformService.ExtractFragmentOuterByPuidAsync(snip.Html ?? "", puid)
+            : await HtmlTransformService.ExtractFragmentInnerByPuidAsync(snip.Html ?? "", puid);
+
+        Selection.IsActive  = true;
+        Selection.SnippetId = snippetId;
+        Selection.Selector = puid;
+        Selection.Scope = scope;
+        Selection.Html = await HtmlPuid.StripPuidsAsync(fragHtml);
+        
+        SelectedSnippetId = snippetId;
+        ContentVersion++;
+        Notify();
+    }
+    public async Task SetSelectionScope(FragmentScope scope)
+    {
+        if (!Selection.IsActive || Selection.SnippetId == Guid.Empty || string.IsNullOrEmpty(Selection.Selector))
+            return;
+
+        await BeginFragmentEdit(Selection.SnippetId, Selection.Selector!, scope);
+    }
+    
+    
     // Services/PutDocState.cs
     public void CancelSelectionEdit()
     {

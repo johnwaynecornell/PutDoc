@@ -93,5 +93,11 @@ else
             var domId = $"snip-{snip.Id}";
             await JS.InvokeVoidAsync("putdocEnh.observeById", domId);
         }
+        
+        // highlight the live fragment (if fragment mode)
+        if (State.Selection.IsActive && !string.IsNullOrWhiteSpace(State.Selection.Selector))
+        {
+            await JS.InvokeVoidAsync("putdocEnh.markSelected", State.Selection.Selector);
+        }
     }
 }

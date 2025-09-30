@@ -136,16 +136,56 @@ public static class HtmlTransformService
         return true;
     }
 
-    public static async Task<string?> ReplaceFragmentByPuidAsync(string html, string puid, string newOuterHtml)
+public static async Task<string?> ExtractFragmentInnerByPuidAsync(string html, string puid)
+{
+    var doc = await Ctx.OpenAsync(req => req.Content(html));
+    var el  = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+    return el?.InnerHtml;
+}
+
+public static async Task<string?> ExtractFragmentOuterByPuidAsync(string html, string puid)
+{
+    var doc = await Ctx.OpenAsync(req => req.Content(html));
+    var el  = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+    return el?.OuterHtml;
+}
+
+/// <summary>
+/// Replaces either the innerHTML or the outer element by PUID.
+/// Guarantees the resulting element retains the same data-puid when replacing outer.
+/// </summary>
+public static async Task<string?> ReplaceFragmentByPuidAsync(
+    string html, string puid, string replacement, bool replaceOuter)
+{
+    var doc = await Ctx.OpenAsync(req => req.Content(html));
+    var el  = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+    if (el is null) return null;
+
+    if (replaceOuter)
     {
-        var doc = await Ctx.OpenAsync(req => req.Content(html ?? ""));
-        var root = doc.Body!;
-        var target = FindByPuid(root, puid);
-        if (target is null) return null;
-        target.OuterHtml = newOuterHtml ?? "";
-        //foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
-        //    EnsurePuid(el);
-        //ReassignDuplicatePuids(root);
-        return SerializeFragment(root);
+        // parse replacement as HTML
+        var wrapper = doc.CreateElement("div");
+        wrapper.InnerHtml = replacement;
+
+        // pick the first element child; if none, bail
+        var newEl = wrapper.FirstElementChild;
+        if (newEl is null) return null;
+
+        // ensure we keep same PUID
+        if (!newEl.HasAttribute("data-puid"))
+            newEl.SetAttribute("data-puid", puid);
+
+        el.Replace(newEl);
     }
+    else
+    {
+        el.InnerHtml = replacement;
+    }
+
+    // Serialize preserving text/whitespace (use your existing serializer)
+    var root = doc.Body ?? doc.DocumentElement;
+    return SerializeFragment(root);
+    //return await HtmlSerialize.PreserveAllAsync(root!); // <- use the same method you already adopted
+}
+
 }

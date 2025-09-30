@@ -3,18 +3,18 @@
 @using PutDoc.Services
 
 <div class="pd-inline-toolbar @(open ? "open" : null)">
-    <button type="button" class="pd-gear" title="Actions" @onclick="Toggle">⋯</button>
+    <button type="button" class="pd-gear" @onclick="Toggle" title="Actions">⋯</button>
 
     @if (open)
     {
         <div class="pd-toolbar-row">
-            <button type="button" title="Copy HTML" @onclick='() => Apply("copy")'>Copy</button>
-            <!-- <button type="button" title="Edit fragment" @onclick='Edit'>Edit</button> -->
-            <button type="button" title="Edit fragment" @onclick='() => Apply("edit")'>Edit</button>
+            <button type="button" title="Copy HTML" @onclick='Copy'>Copy</button>
+            <button type="button" title="Edit fragment (inner)" @onclick='EditInner'>Edit</button>
+            <button type="button" title="Edit element (outer)" @onclick='EditOuter'>Edit Outer</button>
             <button type="button" title="Clone" @onclick='() => Apply("clone")'>Clone</button>
             <button type="button" class="danger" title="Delete" @onclick='() => Apply("delete")'>Del</button>
-            <button type="button" title="Move up" @onclick='() => Apply("move-up")'>↑</button>
-            <button type="button" title="Move down" @onclick='() => Apply("move-down")'>↓</button>
+            <button type="button" title="Move up" @onclick='() => Apply("up")'>↑</button>
+            <button type="button" title="Move down" @onclick='() => Apply("down")'>↓</button>
         </div>
     }
 </div>
@@ -25,48 +25,33 @@
     [Parameter] public string? Kind { get; set; }    // "slf-card"/"prompt_area"/...
 
     bool open;
-
     void Toggle() => open = !open;
 
-    
-    
-    async Task Copy()
+    async Task EditInner()
     {
-        //State.SelectSnippet(SnippetId);
-        if (Puid is null) return;
-        
-        Console.WriteLine("###");
-        Console.WriteLine(State.Selection.Html);
-        Console.WriteLine("###");
-        
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", State.Selection.Html);
-        //await JS.InvokeVoidAsync("putdoc.writeClipboardText", State.Selection.Html); 
-        //
-        //await JS.InvokeVoidAsync("putdocEnh.copyByPuid", Puid);
+        if (string.IsNullOrEmpty(Puid)) return;
+        await State.BeginFragmentEdit(SnippetId, Puid!, PutDocState.FragmentScope.Inner);
+        await JS.InvokeVoidAsync("putdocEnh.markSelected", Puid);
     }
 
-    async Task Edit()
+    async Task EditOuter()
     {
-        if (Puid is null) return;
-        
-        State.BeginSelectionEdit(SnippetId, Puid, State.Selection.Html ?? "");
-        // Notify WorkPane/Editor to reflect fragment mode
-        State.Notify();
+        if (string.IsNullOrEmpty(Puid)) return;
+        await State.BeginFragmentEdit(SnippetId, Puid!, PutDocState.FragmentScope.Outer);
+        await JS.InvokeVoidAsync("putdocEnh.markSelected", Puid);
+    }
+
+    async Task Copy()
+    {
+        if (string.IsNullOrEmpty(Puid)) return;
+        await JS.InvokeVoidAsync("putdocEnh.copyByPuid", Puid);
     }
 
     async Task Apply(string action)
     {
-        if (Puid is null) return;
-        // apply DOM transform (clone/delete/up/down) then save back
-        State.BeginSelectionEdit(SnippetId, Puid, State.Selection.Html ?? "");
-
-        var ok = await HtmlTransformService.ApplyAsync(State, SnippetId, action, Puid);
-        if (ok)
-        {
-            // Ensure editor sees this as an external change
-            await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
-            State.Notify();
-        }
+        if (string.IsNullOrEmpty(Puid)) return;
+        var ok = await HtmlTransformService.ApplyAsync(State, SnippetId, action, Puid!);
+        if (ok) await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
     }
 
     [Inject] IJSRuntime JS { get; set; } = default!;

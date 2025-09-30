@@ -10,6 +10,11 @@
 {
     <div style="font-size:.85rem; color:#444; margin-bottom:.25rem; display:flex; gap:.5rem; align-items:center;">
         Editing fragment in snippet <code>@State.Selection.SnippetId</code>
+        <span>• Scope:
+            <button type="button" class="btn" @onclick="ToggleScope">
+                @(_fragScope == PutDocState.FragmentScope.Inner ? "Inner" : "Outer")
+            </button>
+        </span>
         <button type="button" class="btn" @onclick="ExitFragment">Exit fragment</button>
     </div>
 }
@@ -99,6 +104,14 @@
     }
 
     private long _lastSeenContentVersion;
+    private PutDocState.FragmentScope _fragScope = PutDocState.FragmentScope.Inner;
+
+    private async Task ToggleScope()
+    {
+        _fragScope = (_fragScope == PutDocState.FragmentScope.Inner) ? PutDocState.FragmentScope.Outer : PutDocState.FragmentScope.Inner;
+        await State.SetSelectionScope(_fragScope);        // updates Selection.Html
+        await SyncFromStateAsync(force: true);            // refresh editorText
+    }
 
     private async Task SyncFromStateAsync(bool force)
     {
@@ -107,6 +120,7 @@
 
         if (_isFragmentMode)
         {
+            _fragScope = State.Selection.Scope;
             editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
             _lastSnippetId = State.Selection.SnippetId;
             _lastSeenContentVersion = State.ContentVersion;
@@ -177,19 +191,23 @@
 
         if (_isFragmentMode && State.Selection.IsActive)
         {
-            // Replace only the fragment by PUID; SetSnippetHtml(false) to avoid double-strip
+            
             var page = State.CurrentPage();
             var snip = page?.Snippets.FirstOrDefault(s => s.Id == State.Selection.SnippetId);
             if (snip is not null)
             {
                 var newHtml = await HtmlTransformService.ReplaceFragmentByPuidAsync(
-                    snip.Html ?? "", State.Selection.Selector /* PUID */, editorText);
+                    snip.Html ?? "",
+                    State.Selection.Selector!,
+                    editorText,
+                    replaceOuter: State.Selection.Scope == PutDocState.FragmentScope.Outer);
 
                 if (newHtml is not null)
                     await State.SetSnippetHtml(newHtml, isRawFromEditor: false);
             }
-            // refresh fragment model (still strip puids so editor is clean)
-            State.BeginSelectionEdit(State.Selection.SnippetId, State.Selection.Selector, editorText);
+            // keep selection active, refresh its content from state
+            await State.BeginFragmentEdit(State.Selection.SnippetId, State.Selection.Selector!, State.Selection.Scope);
+
         }
         else
         {

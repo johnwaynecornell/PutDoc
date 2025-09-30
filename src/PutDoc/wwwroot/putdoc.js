@@ -376,13 +376,58 @@
             observe(el, sid);
         }
 
+        function sanitizeForExport(node) {
+            const clone = node.cloneNode(true);
 
+            // Remove any injected toolbars
+            clone.querySelectorAll('putdoc-toolbar').forEach(n => n.remove());
+
+            // Remove data-puid from clone + descendants
+            if (clone.removeAttribute) clone.removeAttribute('data-puid');
+            clone.querySelectorAll('[data-puid]').forEach(n => n.removeAttribute('data-puid'));
+
+            // Optional: strip other editor-only artifacts
+            clone.querySelectorAll('[contenteditable]').forEach(n => n.removeAttribute('contenteditable'));
+            // ...add more removals if you have other markers
+
+            return clone.outerHTML;
+        }
+
+        async function copyByPuidClean(puid) {
+            const target = document.querySelector(`[data-puid="${puid}"]`);
+            if (!target) return;
+            const html = sanitizeForExport(target);
+            try {
+                await navigator.clipboard.writeText(html);
+            } catch (_) {
+                const ta = document.createElement('textarea');
+                ta.value = html; document.body.appendChild(ta);
+                ta.select(); document.execCommand('copy'); ta.remove();
+            }
+        }
+
+        let __selectedPuid = null;
+
+        function clearSelected() {
+            if (!__selectedPuid) return;
+            document.querySelectorAll('[data-selected="true"]').forEach(n => n.removeAttribute('data-selected'));
+            __selectedPuid = null;
+        }
+
+        function markSelected(puid) {
+            clearSelected();
+            const el = document.querySelector(`[data-puid="${puid}"]`);
+            if (el) {
+                el.setAttribute('data-selected', 'true');
+                __selectedPuid = puid;
+            }
+        }
+
+// expose it
         return {
-            enhance,
-            observe,
-            copyByPuid,
-            enhanceById,
-            observeById
+            enhance, observe, enhanceById, observeById,
+            copyByPuid: copyByPuidClean,
+            markSelected
         };
     })();
     
