@@ -27,17 +27,14 @@
     <button type="button" class="btn" @onclick='() => InsertTpl("table")'>+ table</button>
     <button type="button" class="btn" @onclick='() => InsertTpl("list")'>+ list</button>
     <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
-
     <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-    <!-- <button type="button" class="btn" @onclick="Format HTML">Format HTML</button> -->
 </div>
 
 <textarea @ref="_ta"
           class="w-full"
           style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
-value="@editorText" 
-@oninput="OnInput" >
-@* disabled="@_isSaving">      $1$ 🔒 lock input during save */ *@
+          value="@editorText"
+          @oninput="OnInput">
 </textarea>
 
 @code {
@@ -61,8 +58,14 @@ value="@editorText"
     private bool _isFragmentMode;
     private Guid? _lastSnippetId;
 
-    // 🔒 saving lock
+    // typing serials (detect typing during save)
+    private long _inputSerial = 0;
+    private long _inputSerialAtSave = 0;
+    
+    // save control
     private bool _isSaving = false;
+    private bool _pendingSave = false;
+    private string? _savingSnapshot;
 
     // debounce timer (autosave)
     private System.Timers.Timer? _debounce;
@@ -85,19 +88,20 @@ value="@editorText"
         _ = SyncFromStateAsync(force:true);
     }
 
-    private void OnStateChanged()
-    {
+    private void OnStateChanged() =>
         _ = InvokeAsync(() => SyncFromStateAsync(force:false));
-    }
 
     private long _lastSeenContentVersion;
     private PutDocState.FragmentScope _fragScope = PutDocState.FragmentScope.Inner;
 
     private async Task ToggleScope()
     {
-        _fragScope = (_fragScope == PutDocState.FragmentScope.Inner) ? PutDocState.FragmentScope.Outer : PutDocState.FragmentScope.Inner;
-        await State.SetSelectionScope(_fragScope);
-        await SyncFromStateAsync(force: true);
+        _fragScope = (_fragScope == PutDocState.FragmentScope.Inner)
+            ? PutDocState.FragmentScope.Outer
+            : PutDocState.FragmentScope.Inner;
+
+        await State.SetSelectionScope(_fragScope);  // updates Selection.Html
+        await SyncFromStateAsync(force: true);      // refresh editorText
     }
 
     private async Task SyncFromStateAsync(bool force)
@@ -109,7 +113,7 @@ value="@editorText"
         {
             _fragScope = State.Selection.Scope;
 
-            // ⬇️ don’t stomp user edits during a save
+            // Don't stomp user text while saving
             if (!_isSaving)
             {
                 editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
@@ -139,10 +143,17 @@ value="@editorText"
         }
     }
 
-    void OnTextChanged()
+    // INPUT handling (no @bind): full control over model updates
+    private void OnInput(ChangeEventArgs e)
     {
-        if (_isSaving) return;   // 🔒 don't schedule saves while locked
+        editorText = e.Value?.ToString() ?? "";
+        _inputSerial++;
+        OnTextChanged();
+    }
 
+    
+    private void OnTextChanged()
+    {
         _saveState = SaveState.Typing;
         _debounce?.Stop();
         _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
@@ -150,38 +161,43 @@ value="@editorText"
         _debounce.Elapsed += DebouncedSave;
         _debounce.Start();
     }
-    
-    // counts each user input; used to detect typing during save
-    private long _inputSerial = 0;
-    private long _inputSerialAtSave = 0;
 
-    private void OnInput(ChangeEventArgs e)
-    {
-        editorText = e.Value?.ToString() ?? "";
-        _inputSerial++;        // user typed
-        OnTextChanged();       // kick debounce (same as your old OnBoundChanged)
-    }
-
-
+    // Coalesce saves: if one is running, mark pending and flush once after
     private async void DebouncedSave(object? sender, System.Timers.ElapsedEventArgs e)
     {
-        await InvokeAsync(SaveAsync);
+        await InvokeAsync(async () =>
+        {
+            if (_isSaving)
+            {
+                _pendingSave = true;
+                return;
+            }
+
+            await SaveAsync();
+
+            if (_pendingSave)
+            {
+                _pendingSave = false;
+                await SaveAsync();
+            }
+        });
     }
 
-    string _savingSnapshot = "";
+    
     
     private async Task SaveAsync()
     {
-        var sel = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        // Preserve caret at the moment we start saving
+        TextSelection textSelection = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
         _isSaving = true;
-        _savingSnapshot = editorText; // snapshot what we’re saving
+        _savingSnapshot = editorText;      // snapshot text we’re saving
         _inputSerialAtSave = _inputSerial; // snapshot typing count
         _saveState = SaveState.Saving;
         StateHasChanged();
 
         bool userTyped = false;
-        
+
         if (_isFragmentMode && State.Selection.IsActive)
         {
             var page = State.CurrentPage();
@@ -202,39 +218,44 @@ value="@editorText"
             await State.BeginFragmentEdit(State.Selection.SnippetId, State.Selection.Selector!, State.Selection.Scope);
             if (_inputSerial == _inputSerialAtSave)
             {
-                // no new typing → safe to replace editorText from state
                 editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
             }
             else userTyped = true;
-            // else: user typed → keep their current editorText
         }
         else
         {
             // whole-snippet mode
             await State.SetSnippetHtml(_savingSnapshot!, isRawFromEditor: true);
 
-            // only normalize editorText if no new typing since save began
             if (_inputSerial == _inputSerialAtSave)
             {
                 var cleaned = await HtmlPuid.StripPuidsAsync(State.CurrentSnippet()?.Html ?? "");
                 editorText = cleaned;
             }
             else userTyped = true;
-            // else: user typed → keep what’s on screen
         }
 
         _saveState = SaveState.Saved;
         _isSaving = false;
         StateHasChanged();
 
-        if (!userTyped) await JS.InvokeVoidAsync("putdocText.setSel", _ta, sel.Start, sel.End);
-    }
+        // Only restore caret if no typing occurred during the save window
+        if (!userTyped)
+            await JS.InvokeVoidAsync("putdocText.setSel", _ta, textSelection.Start, textSelection.End);
 
+        // (optional) fade "Saved" back to idle after a beat
+        /*_ = Task.Delay(900).ContinueWith(_ =>
+        {
+            if (!_isSaving && _saveState == SaveState.Saved)
+            {
+                _saveState = SaveState.Idle;
+                InvokeAsync(StateHasChanged);
+            }
+        });*/
+    }
 
     private async Task InsertTpl(string kind)
     {
-        if (_isSaving) return; // 🔒 ignore inserts while locked
-
         var tpl = kind switch
         {
             "card"   => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
@@ -244,6 +265,7 @@ value="@editorText"
             "list"   => "<ul><li>Item 1</li><li>Item 2</li></ul>",
             _        => "<p>...</p>"
         };
+
         await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, tpl);
 
         _saveState = SaveState.Typing;
@@ -267,5 +289,6 @@ value="@editorText"
         }
     }
 
+    // Strongly-typed sel DTO for JS interop
     public record TextSelection(int Start, int End);
 }

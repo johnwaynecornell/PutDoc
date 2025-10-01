@@ -20,6 +20,13 @@ builder.Services.AddServerSideBlazor(options =>
         identifier: "putdoc.toolbar"
         // , javaScriptInitializer: "putdocInit"  // optional initializer hook
     );
+}).AddCircuitOptions(options =>
+{
+    // Enable DetailedErrors only in the Development environment for security reasons
+    //if (_env.IsDevelopment())
+    {
+        options.DetailedErrors = true;
+    }
 });
 
 builder.Services.AddSingleton<IAngleSoftFilter, AngleSoftFilter>();
