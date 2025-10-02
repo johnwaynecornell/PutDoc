@@ -279,42 +279,17 @@
     };
 
     window.putdocEnh = (function () {
-        let started = false;
+        let hub = null; // DotNetObjectReference set by ToolbarHub once
         
-        async function ensureBlazorStarted() {
-            if (started) return;
-            started = true;
-            /* await Blazor.start(); */
-        }
+        function setHub(dotNetRef) { hub = dotNetRef; }
 
-        // Define a custom element that mounts a Blazor component into itself
-        class PutDocToolbar extends HTMLElement {
-            async connectedCallback() {
-                // Create a host for the Blazor root component
-                if (!this._host) {
-                    this._host = document.createElement('div');
-                    this.appendChild(this._host);
-                }
-                await ensureBlazorStarted();
-                const parms = {
-                    SnippetId: this.getAttribute('snippet-id'),
-                    Puid: this.getAttribute('puid'),
-                    Kind: this.getAttribute('kind')
-                };
-                
-                // Mount the Blazor component into this element
-                Blazor.rootComponents.add(this._host, 'putdoc.toolbar', parms);
-            }
-        }
-        customElements.get('putdoc-toolbar') || customElements.define('putdoc-toolbar', PutDocToolbar);
-        
-        // Ensure container can host an absolutely positioned toolbar
+        // Ensure container can host absolutely positioned toolbar
         function ensurePositioned(el) {
             const cs = getComputedStyle(el);
             if (cs.position === 'static') el.style.position = 'relative';
         }
 
-        // Ensure element has a puid; use data-puid attribute
+        // Ensure element has a puid
         function ensurePuid(el) {
             if (!el.getAttribute('data-puid')) {
                 el.setAttribute('data-puid', crypto.randomUUID());
@@ -322,35 +297,112 @@
             return el.getAttribute('data-puid');
         }
 
-        // Public: copy outerHTML of element by puid
-        async function copyByPuid(puid) {
+        // --- Copy helpers (unchanged) ---
+        function sanitizeForExport(node) {
+            const clone = node.cloneNode(true);
+            // strip toolbars
+            clone.querySelectorAll('putdoc-toolbar').forEach(n => n.remove());
+            // strip puid
+            if (clone.removeAttribute) clone.removeAttribute('data-puid');
+            clone.querySelectorAll('[data-puid]').forEach(n => n.removeAttribute('data-puid'));
+            // editor-only attrs
+            clone.querySelectorAll('[contenteditable]').forEach(n => n.removeAttribute('contenteditable'));
+            return clone.outerHTML;
+        }
+
+        async function copyByPuidClean(puid) {
             const target = document.querySelector(`[data-puid="${puid}"]`);
             if (!target) return;
-            const html = target.outerHTML;
+            const html = sanitizeForExport(target);
             try {
                 await navigator.clipboard.writeText(html);
             } catch {
-                // fallback
                 const ta = document.createElement('textarea');
                 ta.value = html; document.body.appendChild(ta);
                 ta.select(); document.execCommand('copy'); ta.remove();
             }
         }
 
+        let __selectedPuid = null;
+        function clearSelected() {
+            if (!__selectedPuid) return;
+            document.querySelectorAll('[data-selected="true"]').forEach(n => n.removeAttribute('data-selected'));
+            __selectedPuid = null;
+        }
+        function markSelected(puid) {
+            clearSelected();
+            const el = document.querySelector(`[data-puid="${puid}"]`);
+            if (el) {
+                el.setAttribute('data-selected', 'true');
+                __selectedPuid = puid;
+            }
+        }
+
+        // --- Web Component: renders buttons (no Blazor root!) ---
+        class PutDocToolbar extends HTMLElement {
+            connectedCallback() {
+                if (this._wired) return;
+                this._wired = true;
+
+                const snippetId = this.getAttribute('snippet-id') || '';
+                const puid = this.getAttribute('puid') || '';
+                const kind = this.getAttribute('kind') || '';
+
+                this.classList.add('pd-toolbar-host');
+                this.style.position = 'absolute';
+                this.style.top = '8px';
+                this.style.right = '8px';
+
+                // build UI
+                this.innerHTML = `
+              <div class="pd-inline-toolbar">
+                <button type="button" class="pd-gear" title="Actions">⋯</button>
+                <div class="pd-toolbar-row" hidden>
+                  <button type="button" data-act="copy">Copy</button>
+                  <button type="button" data-act="edit-inner">Edit</button>
+                  <button type="button" data-act="edit-outer">Edit Outer</button>
+                  <button type="button" data-act="clone">Clone</button>
+                  <button type="button" class="danger" data-act="delete">Del</button>
+                  <button type="button" data-act="move-up">↑</button>
+                  <button type="button" data-act="move-down">↓</button>
+                </div>
+              </div>
+            `;
+
+                const gear = this.querySelector('.pd-gear');
+                const row  = this.querySelector('.pd-toolbar-row');
+
+                gear?.addEventListener('click', () => {
+                    if (!row) return;
+                    const isHidden = row.hasAttribute('hidden');
+                    if (isHidden) row.removeAttribute('hidden'); else row.setAttribute('hidden', '');
+                });
+
+                this.querySelectorAll('[data-act]').forEach(btn => {
+                    btn.addEventListener('click', async e => {
+                        const act = btn.getAttribute('data-act');
+                        if (!hub || !act) return;
+                        // route to Blazor hub
+                        await hub.invokeMethodAsync('Handle', act, puid, snippetId);
+                    });
+                });
+            }
+        }
+        customElements.get('putdoc-toolbar') || customElements.define('putdoc-toolbar', PutDocToolbar);
+
         // Enhance a container: add toolbar to each recognized element
         function enhance(container, snippetId) {
             if (!container) return;
             const selectors = '.slf-card, .slf-brick, .prompt_area, pre';
             container.querySelectorAll(selectors).forEach(el => {
-                if (el.querySelector(':scope > putdoc-toolbar')) return; // already enhanced for this el
-
+                if (el.querySelector(':scope > putdoc-toolbar')) return;
                 ensurePositioned(el);
                 const puid = ensurePuid(el);
                 const toolbar = document.createElement('putdoc-toolbar');
                 toolbar.setAttribute('snippet-id', snippetId);
                 toolbar.setAttribute('puid', puid);
                 toolbar.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
-                el.prepend(toolbar); // place at top-right (absolute inside InlineToolbar)
+                el.prepend(toolbar);
             });
         }
 
@@ -368,7 +420,6 @@
             enhance(container, snippetId);
             return mo;
         }
-
         function observeById(id) {
             const el = document.getElementById(id);
             if (!el) return;
@@ -376,61 +427,15 @@
             observe(el, sid);
         }
 
-        function sanitizeForExport(node) {
-            const clone = node.cloneNode(true);
-
-            // Remove any injected toolbars
-            clone.querySelectorAll('putdoc-toolbar').forEach(n => n.remove());
-
-            // Remove data-puid from clone + descendants
-            if (clone.removeAttribute) clone.removeAttribute('data-puid');
-            clone.querySelectorAll('[data-puid]').forEach(n => n.removeAttribute('data-puid'));
-
-            // Optional: strip other editor-only artifacts
-            clone.querySelectorAll('[contenteditable]').forEach(n => n.removeAttribute('contenteditable'));
-            // ...add more removals if you have other markers
-
-            return clone.outerHTML;
-        }
-
-        async function copyByPuidClean(puid) {
-            const target = document.querySelector(`[data-puid="${puid}"]`);
-            if (!target) return;
-            const html = sanitizeForExport(target);
-            try {
-                await navigator.clipboard.writeText(html);
-            } catch (_) {
-                const ta = document.createElement('textarea');
-                ta.value = html; document.body.appendChild(ta);
-                ta.select(); document.execCommand('copy'); ta.remove();
-            }
-        }
-
-        let __selectedPuid = null;
-
-        function clearSelected() {
-            if (!__selectedPuid) return;
-            document.querySelectorAll('[data-selected="true"]').forEach(n => n.removeAttribute('data-selected'));
-            __selectedPuid = null;
-        }
-
-        function markSelected(puid) {
-            clearSelected();
-            const el = document.querySelector(`[data-puid="${puid}"]`);
-            if (el) {
-                el.setAttribute('data-selected', 'true');
-                __selectedPuid = puid;
-            }
-        }
-
-// expose it
         return {
+            setHub,
             enhance, observe, enhanceById, observeById,
             copyByPuid: copyByPuidClean,
             markSelected
         };
     })();
-    
+
+
     (function () {
         function onReady(fn) {
             if (document.readyState !== 'loading') fn();

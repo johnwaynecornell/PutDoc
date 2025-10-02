@@ -2,6 +2,8 @@
 @inject PutDocState State
 @inject IJSRuntime JS
 
+<ToolbarHub />
+
 <h3 class="font-semibold mb-2">WorkPane — Snippets in Page</h3>
 
 @if (State.CurrentPage() is { } _page)
@@ -101,3 +103,12 @@ else
         }
     }
 }
+
+<style>
+    .pd-inline-toolbar { display: inline-flex; align-items: center; gap: .5rem; }
+    .pd-toolbar-row { display: flex; gap: .5rem; margin-left: .25rem; }
+    .pd-toolbar-row[hidden] { display: none; }
+    .pd-gear { border: 1px solid #e5e7eb; border-radius: .5rem; background: #fff; padding: .125rem .5rem; }
+    .pd-toolbar-row button { border: 1px solid #e5e7eb; border-radius: .5rem; background: #fff; padding: .125rem .5rem; }
+    .pd-toolbar-row button.danger { border-color: #f0b; color: #b00; }
+</style>

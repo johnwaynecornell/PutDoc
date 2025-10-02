@@ -1,0 +1,58 @@
+@namespace PutDoc.Components
+@inject PutDoc.Services.PutDocState State
+@* @inject PutDoc.Services.HtmlTransformService HtmlTransformService *@
+@inject IJSRuntime JS
+
+@implements IAsyncDisposable
+
+@code {
+    DotNetObjectReference<ToolbarHub>? _selfRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _selfRef = DotNetObjectReference.Create(this);
+        // Hand our instance to putdocEnh so Web Components can call into .NET
+        await JS.InvokeVoidAsync("putdocEnh.setHub", _selfRef);
+    }
+
+    [JSInvokable]
+    public async Task Handle(string action, string puid, string snippetIdStr)
+    {
+        if (!Guid.TryParse(snippetIdStr, out var snippetId)) return;
+
+        switch (action)
+        {
+            case "copy":
+                await JS.InvokeVoidAsync("putdocEnh.copyByPuid", puid);
+                return;
+
+            case "edit-inner":
+                await State.BeginFragmentEdit(snippetId, puid, PutDocState.FragmentScope.Inner);
+                await JS.InvokeVoidAsync("putdocEnh.markSelected", puid);
+                return;
+
+            case "edit-outer":
+                await State.BeginFragmentEdit(snippetId, puid, PutDocState.FragmentScope.Outer);
+                await JS.InvokeVoidAsync("putdocEnh.markSelected", puid);
+                return;
+
+            case "clone":
+            case "delete":
+            case "move-up":
+            case "move-down":
+            {
+                var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
+                if (ok)
+                    await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
+                return;
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _selfRef?.Dispose();
+        await Task.CompletedTask;
+    }
+}
