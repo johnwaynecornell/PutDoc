@@ -1,8 +1,7 @@
+@* ToolbarHub.razor *@
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
-@* @inject PutDoc.Services.HtmlTransformService HtmlTransformService *@
 @inject IJSRuntime JS
-
 @implements IAsyncDisposable
 
 @code {
@@ -12,10 +11,10 @@
     {
         if (!firstRender) return;
         _selfRef = DotNetObjectReference.Create(this);
-        // Hand our instance to putdocEnh so Web Components can call into .NET
         await JS.InvokeVoidAsync("putdocEnh.setHub", _selfRef);
     }
 
+    // Called by JS to execute actions (you already have this)
     [JSInvokable]
     public async Task Handle(string action, string puid, string snippetIdStr)
     {
@@ -41,18 +40,50 @@
             case "delete":
             case "up":
             case "down":
-            {
-                var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
-                if (ok)
-                    await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
-                return;
-            }
+                {
+                    var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
+                    if (ok) await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
+                    return;
+                }
         }
     }
 
-    public async ValueTask DisposeAsync()
+    // NEW: HTML-on-demand for the popover (customize per kind)
+    [JSInvokable]
+    public Task<string> GetMenuHtml(string kind, string puid, string snippetIdStr)
+    {
+        // You can branch on 'kind' to tailor the menu.
+        // Example: extra items for lists or <pre>.
+        var extra = kind switch
+        {
+            "ul" => """<button type="button" class="btn" data-act="down">Outdent</button>""",
+            "ol" => """<button type="button" class="btn" data-act="down">Outdent</button>""",
+            "pre" => """<button type="button" class="btn" data-act="format-code">Format</button>""",
+            _    => ""
+        };
+
+        // Note: data-act values map to your Handle(...) actions.
+        var html = $@"
+<div class=""menu-popover pd-toolbar-panel"" role=""menu"" data-kind=""{kind}"">
+  <div class=""toolbar-row"">
+    <button type=""button"" class=""btn""        data-act=""copy"">Copy</button>
+    <button type=""button"" class=""btn""        data-act=""edit-inner"">Edit</button>
+    <button type=""button"" class=""btn""        data-act=""edit-outer"">Edit&nbsp;Outer</button>
+    <span class=""sep""></span>
+    <button type=""button"" class=""btn""        data-act=""clone"">Clone</button>
+    <button type=""button"" class=""btn""        data-act=""up"">↑</button>
+    <button type=""button"" class=""btn""        data-act=""down"">↓</button>
+    <button type=""button"" class=""btn danger"" data-act=""delete"">Del</button>
+    {extra}
+  </div>
+</div>
+";
+        return Task.FromResult(html);
+    }
+
+    public ValueTask DisposeAsync()
     {
         _selfRef?.Dispose();
-        await Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 }

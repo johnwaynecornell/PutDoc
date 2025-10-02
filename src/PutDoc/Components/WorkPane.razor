@@ -108,7 +108,16 @@ else
     /* —— Inline toolbar host & trigger —— */
     .pd-toolbar-host { display: inline; vertical-align: baseline; }
 
-    .pd-inline-toolbar { display: inline; }
+    .pd-inline-toolbar { display: inline-flex; align-items: start; gap: .5rem; }
+
+    /* when open: host becomes block → content after starts on a new line */
+    .pd-toolbar-host:has(.pd-inline-toolbar[data-open="true"]) {
+        display: block;
+    }
+    
+    /*.pd-toolbar-row { display: flex; gap: .5rem; margin-left: .25rem; }*/
+    
+    /*.pd-inline-toolbar { display: inline; }*/
     .pd-inline-toolbar .pd-toolbar-panel { display: none; }               /* closed */
     .pd-inline-toolbar[data-open="true"] .pd-toolbar-panel { display: block; } /* open */
 
