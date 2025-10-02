@@ -105,10 +105,30 @@ else
 }
 
 <style>
-    .pd-inline-toolbar { display: inline-flex; align-items: center; gap: .5rem; }
-    .pd-toolbar-row { display: flex; gap: .5rem; margin-left: .25rem; }
-    .pd-toolbar-row[hidden] { display: none; }
-    .pd-gear { border: 1px solid #e5e7eb; border-radius: .5rem; background: #fff; padding: .125rem .5rem; }
-    .pd-toolbar-row button { border: 1px solid #e5e7eb; border-radius: .5rem; background: #fff; padding: .125rem .5rem; }
-    .pd-toolbar-row button.danger { border-color: #f0b; color: #b00; }
+    /* —— Inline toolbar host & trigger —— */
+    .pd-toolbar-host { display: inline; vertical-align: baseline; }
+
+    .pd-inline-toolbar { display: inline; }
+    .pd-inline-toolbar .pd-toolbar-panel { display: none; }               /* closed */
+    .pd-inline-toolbar[data-open="true"] .pd-toolbar-panel { display: block; } /* open */
+
+    .pd-gear.btn.drop {               /* reuse your .btn + .drop */
+        width: 22px; height: 22px; line-height: 1; font-size: 14px; padding: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        margin-right: .375rem;
+    }
+
+    /* Panel adopts IndexPanel tokens */
+    .pd-toolbar-panel.menu-popover {
+        margin: .35rem 0;               /* matches your .menu-popover spacing */
+        padding: .5rem;                 /* already set by .menu-popover */
+    }
+
+    /* Button spacing inside panel */
+    .pd-toolbar-panel .btn { margin-right: .375rem; margin-bottom: .25rem; }
+    .pd-toolbar-panel .btn:last-child { margin-right: 0; }
+
+    /* Optional separators inside panel */
+    .pd-toolbar-panel .sep { border-top: 1px solid #ccc; margin: .5rem 0; display: block; }
+
 </style>

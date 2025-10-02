@@ -39,8 +39,8 @@
 
             case "clone":
             case "delete":
-            case "move-up":
-            case "move-down":
+            case "up":
+            case "down":
             {
                 var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
                 if (ok)

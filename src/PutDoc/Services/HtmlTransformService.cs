@@ -61,7 +61,7 @@ public static class HtmlTransformService
         var root = doc.Body!;
 
         // Ensure actionable elements at least have *some* puid (for future)
-        foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
+        foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
             EnsurePuid(el);
 
         var target = FindByPuid(root, puid);
@@ -97,7 +97,7 @@ public static class HtmlTransformService
                 changed = true;
                 break;
 
-            case "move-up":
+            case "up":
                 if (target.PreviousElementSibling is { } prev)
                 {
                     prev.Insert(AdjacentPosition.BeforeBegin, target.OuterHtml);
@@ -106,7 +106,7 @@ public static class HtmlTransformService
                 }
                 break;
 
-            case "move-down":
+            case "down":
                 if (target.NextElementSibling is { } next)
                 {
                     next.Insert(AdjacentPosition.AfterEnd, target.OuterHtml);

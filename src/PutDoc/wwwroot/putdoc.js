@@ -44,8 +44,8 @@
                     { label: 'Edit',  action: 'edit' },
                     { label: 'Clone', action: 'clone' },
                     { label: 'Del',   action: 'delete' },
-                    { label: '↑',     action: 'move-up' },
-                    { label: '↓',     action: 'move-down' },
+                    { label: '↑',     action: 'up' },
+                    { label: '↓',     action: 'down' },
                 ]);
             }
         }
@@ -279,9 +279,9 @@
     };
 
     window.putdocEnh = (function () {
-        let hub = null; // DotNetObjectReference set by ToolbarHub once
-        
-        function setHub(dotNetRef) { hub = dotNetRef; }
+        let __hub = null; // DotNetObjectReference set by ToolbarHub once
+        let __currentOpen = null;
+        function setHub(dotNetRef) { __hub = dotNetRef; }
 
         // Ensure container can host absolutely positioned toolbar
         function ensurePositioned(el) {
@@ -339,62 +339,101 @@
         }
 
         // --- Web Component: renders buttons (no Blazor root!) ---
+        // Global handlers to enforce single-open
+        (function ensureGlobalHandlers() {
+            if (window.__pdToolbarHandlersInstalled) return;
+            window.__pdToolbarHandlersInstalled = true;
+
+            document.addEventListener('click', (evt) => {
+                if (!__currentOpen) return;
+                // close when clicking outside the open toolbar block
+                if (!__currentOpen.contains(evt.target)) closeCurrent();
+            });
+
+            document.addEventListener('keydown', (evt) => {
+                if (!__currentOpen) return;
+                if (evt.key === 'Escape') closeCurrent(/*refocus*/ true);
+            });
+        })();
+
+        function closeCurrent(refocus) {
+            if (!__currentOpen) return;
+            const shell = __currentOpen.querySelector('.pd-inline-toolbar');
+            const gear  = __currentOpen.querySelector('.pd-gear');
+            if (shell) {
+                shell.dataset.open = 'false';
+                shell.setAttribute('aria-expanded', 'false');
+            }
+            if (refocus && gear) gear.focus();
+            __currentOpen = null;
+        }
+
+        function openThis(host) {
+            // close any other first
+            if (__currentOpen && __currentOpen !== host) closeCurrent(false);
+            const shell = host.querySelector('.pd-inline-toolbar');
+            if (shell) {
+                shell.dataset.open = 'true';
+                shell.setAttribute('aria-expanded', 'true');
+            }
+            __currentOpen = host;
+        }
+
         class PutDocToolbar extends HTMLElement {
             connectedCallback() {
                 if (this._wired) return;
                 this._wired = true;
 
                 const snippetId = this.getAttribute('snippet-id') || '';
-                const puid = this.getAttribute('puid') || '';
-                const kind = this.getAttribute('kind') || '';
+                const puid      = this.getAttribute('puid') || '';
+                const kind      = this.getAttribute('kind') || '';
 
+                // Inline: gear first, panel below when open
                 this.classList.add('pd-toolbar-host');
-                this.style.position = 'absolute';
-                this.style.top = '8px';
-                this.style.right = '8px';
-
-                // build UI
                 this.innerHTML = `
-              <div class="pd-inline-toolbar">
-                <button type="button" class="pd-gear" title="Actions">⋯</button>
-                <div class="pd-toolbar-row" hidden>
-                  <button type="button" data-act="copy">Copy</button>
-                  <button type="button" data-act="edit-inner">Edit</button>
-                  <button type="button" data-act="edit-outer">Edit Outer</button>
-                  <button type="button" data-act="clone">Clone</button>
-                  <button type="button" class="danger" data-act="delete">Del</button>
-                  <button type="button" data-act="move-up">↑</button>
-                  <button type="button" data-act="move-down">↓</button>
-                </div>
-              </div>
-            `;
+      <span class="pd-inline-toolbar" data-open="false" aria-expanded="false" aria-haspopup="menu">
+        <button type="button" class="btn drop pd-gear" title="Actions" aria-label="Open toolbar">⋯</button>
+        <div class="menu-popover pd-toolbar-panel" role="menu">
+          <div class="toolbar-row">
+            <button type="button" class="btn"          data-act="copy">Copy</button>
+            <button type="button" class="btn"          data-act="edit-inner">Edit</button>
+            <button type="button" class="btn"          data-act="edit-outer">Edit&nbsp;Outer</button>
+            <span class="sep"></span>
+            <button type="button" class="btn"          data-act="clone">Clone</button>
+            <button type="button" class="btn"          data-act="up">↑</button>
+            <button type="button" class="btn"          data-act="down">↓</button>
+            <button type="button" class="btn danger"   data-act="delete">Del</button>
+          </div>
+        </div>
+      </span>
+    `;
 
-                const gear = this.querySelector('.pd-gear');
-                const row  = this.querySelector('.pd-toolbar-row');
+                const shell = this.querySelector('.pd-inline-toolbar');
+                const gear  = this.querySelector('.pd-gear');
 
-                gear?.addEventListener('click', () => {
-                    if (!row) return;
-                    const isHidden = row.hasAttribute('hidden');
-                    if (isHidden) row.removeAttribute('hidden'); else row.setAttribute('hidden', '');
+                gear?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isOpen = shell?.dataset.open === 'true';
+                    isOpen ? closeCurrent(true) : openThis(this);
                 });
 
                 this.querySelectorAll('[data-act]').forEach(btn => {
-                    btn.addEventListener('click', async e => {
+                    btn.addEventListener('click', async () => {
                         const act = btn.getAttribute('data-act');
-                        if (!hub || !act) return;
-                        // route to Blazor hub
-                        await hub.invokeMethodAsync('Handle', act, puid, snippetId);
+                        if (!__hub || !act) return;
+                        await __hub.invokeMethodAsync('Handle', act, puid, snippetId);
+                        closeCurrent(false);
                     });
                 });
             }
         }
+
         customElements.get('putdoc-toolbar') || customElements.define('putdoc-toolbar', PutDocToolbar);
 
         // Enhance a container: add toolbar to each recognized element
         function enhance(container, snippetId) {
             if (!container) return;
-            const selectors = '.slf-card, .slf-brick, .prompt_area, pre';
-            container.querySelectorAll(selectors).forEach(el => {
+            const selectors = '.slf-card, .slf-brick, .prompt_area, pre, ul, ol, li';container.querySelectorAll(selectors).forEach(el => {
                 if (el.querySelector(':scope > putdoc-toolbar')) return;
                 ensurePositioned(el);
                 const puid = ensurePuid(el);

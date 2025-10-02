@@ -9,6 +9,8 @@ public static class HtmlPuid
     static readonly IBrowsingContext Ctx =
         BrowsingContext.New(Configuration.Default.WithDefaultLoader());
 
+    public static string query = ".slf-card, .slf-brick, .prompt_area, pre, ul, ol, li";
+    
     static void EnsurePuid(IElement el)
     {
         if (string.IsNullOrWhiteSpace(el.GetAttribute("data-puid")))
@@ -19,7 +21,7 @@ public static class HtmlPuid
     {
         var doc = await Ctx.OpenAsync(r => r.Content(html ?? ""));
         var root = doc.Body!;
-        foreach (var el in root.QuerySelectorAll(".slf-card, .slf-brick, .prompt_area, pre"))
+        foreach (var el in root.QuerySelectorAll(query))
             EnsurePuid(el);
         // Serialize fragment
         return HtmlTransformService.SerializeFragment(root);
