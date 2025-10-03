@@ -211,9 +211,55 @@
     })();
 
 
-    window.putdocText = window.putdocText || {};
+    // Ensure namespace
+    window.putdocText = window.putdocText || (window.putdocText = ({}));
 
+    (function(ns){
+        // WeakMap: textarea -> { start, end }
+        const caretCache = new WeakMap();
 
+        function updateCache(ta) {
+            try {
+                caretCache.set(ta, { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 });
+            } catch { /* noop */ }
+        }
+
+        ns.initEditor = function(ta) {
+            // keep your existing tab indent if available
+            if (typeof ns.bindTabIndent === 'function') {
+                try { ns.bindTabIndent(ta); } catch {}
+            }
+            // seed + track caret on typical events
+            updateCache(ta);
+            // In putdocText module (augment the tracker you added earlier)
+            ['beforeinput','input','keyup','mouseup','select','focus'].forEach(evt =>
+                ta.addEventListener(evt, () => updateCache(ta))
+            );
+
+            // if focus is regained, refresh
+            ta.addEventListener('focus', () => updateCache(ta), { passive: true });
+        };
+
+        ns.getCachedSel = function(ta){
+            const s = caretCache.get(ta);
+            if (s) return s;
+            // fallback to live read
+            try { return { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 }; }
+            catch { return { start: 0, end: 0 }; }
+        };
+
+        ns.setSelSmooth = function (ta, start, end) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    try {
+                        ta.setSelectionRange(start, end);
+                        ta.focus();
+                    } catch {}
+                });
+            });
+        };
+    })(window.putdocText);
+    
     window.putdocText.bindTabIndent = function (ta) {
         if (!ta || ta._putdocTabBound) return;
         ta._putdocTabBound = true;
@@ -286,7 +332,7 @@
         // Ensure container can host absolutely positioned toolbar
         function ensurePositioned(el) {
             const cs = getComputedStyle(el);
-            if (cs.position === 'static') el.style.position = 'relative';
+            //if (cs.position === 'static') el.style.position = 'relative';
         }
 
         // Ensure element has a puid
@@ -305,6 +351,13 @@
             // strip puid
             if (clone.removeAttribute) clone.removeAttribute('data-puid');
             clone.querySelectorAll('[data-puid]').forEach(n => n.removeAttribute('data-puid'));
+
+            if (clone.removeAttribute) clone.removeAttribute('data-selected');
+            clone.querySelectorAll('[data-selected]').forEach(n => n.removeAttribute('data-selected'));
+
+
+
+
             // editor-only attrs
             clone.querySelectorAll('[contenteditable]').forEach(n => n.removeAttribute('contenteditable'));
             return clone.outerHTML;
