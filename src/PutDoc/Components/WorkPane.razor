@@ -1,5 +1,6 @@
+@using System.Text.Json
 @namespace PutDoc.Components
-@inject PutDocState State
+@inject PutDoc.Services.PutDocState State
 @inject IJSRuntime JS
 
 <ToolbarHub />
@@ -29,9 +30,10 @@
                 <button type='button' class='btn' @onclick='() => State.MoveSnippet(snip.Id, -1)'>↑</button>
                 <button type='button' class='btn' @onclick='() => State.MoveSnippet(snip.Id, +1)'>↓</button>
 
+                <!-- Acquire lock before selecting snippet -->
                 <button type='button'
                         class='btn @(State.SelectedSnippetId == snip.Id ? "font-bold" : "")'
-                        @onclick='() => State.SelectSnippet(snip.Id)'>
+                        @onclick='() => EditSnippet(snip.Id)'>
                     Edit
                 </button>
 
@@ -60,7 +62,12 @@ else
 </style>
 
 @code {
+    
     enum TemplateKind { Card, Brick, Prompt }
+
+    private Guid? _lastPageId;
+    private Guid? _lastSelectedSnippetId;
+    private bool _lastActive = false;
 
     async Task CopyToClipboard(string html) =>
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", html);
@@ -82,30 +89,54 @@ else
         State.SelectSnippet(snippetId);
     }
 
+    // Acquire a snippet lock (per window) before selecting
+    async Task EditSnippet(Guid id)
+    {
+        try
+        {
+            // (Optional) release any previous lock first to be courteous
+            await JS.InvokeVoidAsync("putdocPresence.releaseCurrent");
+
+            var res = await JS.InvokeAsync<JsonElement>("putdocPresence.acquireSnippet", id.ToString(), false);
+            var ok =
+                (res.TryGetProperty("status", out var s) && s.GetString() is string st &&
+                 (st == "granted" || st == "stolen"));
+
+            if (ok)
+            {
+                State.SelectSnippet(id);
+            }
+            // else: denied or user cancelled takeover → do nothing
+        }
+        catch
+        {
+            // If presence isn’t ready, fall back to selecting (single-user dev mode)
+            State.SelectSnippet(id);
+        }
+    }
+
     protected override void OnInitialized() => State.Changed += OnStateChanged;
     void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => State.Changed -= OnStateChanged;
 
-    private Guid? _lastPageId;
-    private Guid? _lastSelectedSnippetId;
-    private bool _lastActive = false;
-
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Enhance each snippet by its DOM id
+        // Enhance & observe each snippet by its DOM id (idempotent on JS side)
         var page = State.CurrentPage(); if (page is null) return;
         foreach (var snip in page.Snippets)
         {
             var domId = $"snip-{snip.Id}";
             await JS.InvokeVoidAsync("putdocEnh.observeById", domId);
         }
-        
-        var currentPageId = page.Id;                  // if your Page has Id; otherwise omit page logic
+
+        // Clear previous highlight when page or selected snippet changed,
+        // or when fragment mode just deactivated.
+        var currentPageId = page.Id;
         var currentSelSnipId = State.SelectedSnippetId;
-        
+
         var pageChanged = _lastPageId != currentPageId;
         var snippetChanged = _lastSelectedSnippetId != currentSelSnipId;
-        
+
         if (pageChanged || snippetChanged || (!State.Selection.IsActive && _lastActive))
         {
             await JS.InvokeVoidAsync("putdocEnh.clearSelected");
@@ -114,14 +145,15 @@ else
         }
 
         _lastActive = State.Selection.IsActive;
-        
-        // highlight the live fragment (if fragment mode)
+
+        // Re-highlight active fragment (if any)
         if (State.Selection.IsActive && !string.IsNullOrWhiteSpace(State.Selection.Selector))
         {
             await JS.InvokeVoidAsync("putdocEnh.markSelected", State.Selection.Selector);
         }
     }
 }
+
 
 <style>
     /* —— Inline toolbar host & trigger —— */

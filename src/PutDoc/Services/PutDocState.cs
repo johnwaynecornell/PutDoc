@@ -8,6 +8,8 @@ public class PutDocState
     public Guid? SelectedPageId { get; set; }
     public Guid? SelectedSnippetId { get; set; }
 
+    public string CurrentUserId { get; set; } = new Guid().ToString();
+    
     readonly IPutDocStore _store;
     readonly IAngleSoftFilter _filter;
 

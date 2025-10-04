@@ -38,7 +38,7 @@
 </textarea>
 
 @code {
-    protected override async void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
@@ -59,7 +59,7 @@
     private bool _isFragmentMode;
     private Guid? _lastSnippetId;
 
-    // typing serials (detect typing during save)
+    // typing serials
     private long _inputSerial = 0;
     private long _inputSerialAtSave = 0;
 
@@ -86,11 +86,13 @@
     // selection/sync
     private long _lastSeenContentVersion;
     private PutDocState.FragmentScope _fragScope = PutDocState.FragmentScope.Inner;
-    
-    // Marks the most recent save. Only the latest save may restore the caret.
-    private long _saveEpoch = 0;
-    private long _editVersion = 0;   // increments on each user edit via @bind setter
 
+    // caret/epoch guards
+    private long _saveEpoch = 0;
+    private long _editVersion = 0;
+
+    // lifecycle guard
+    private bool _disposed;
 
     protected override void OnInitialized()
     {
@@ -107,12 +109,11 @@
             ? PutDocState.FragmentScope.Outer
             : PutDocState.FragmentScope.Inner;
 
-        await State.SetSelectionScope(_fragScope);  // updates Selection.Html
-        await SyncFromStateAsync(force: true);      // refresh editorText
+        await State.SetSelectionScope(_fragScope);
+        await SyncFromStateAsync(force: true);
     }
 
     // ---- INPUT ----
-
     private string EditorText
     {
         get => editorText;
@@ -120,15 +121,16 @@
         {
             if (editorText == value) return;
             editorText = value;
-            _editVersion++;              // user typed: new edit version
-            _inputSerial++;              // keep your existing serial logic
+            _editVersion++;
+            _inputSerial++;
             _saveState = SaveState.Typing;
             StartDebounce();
         }
     }
-    
+
     private void StartDebounce()
     {
+        if (_disposed) return;
         _debounce?.Stop();
         _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
         _debounce.Elapsed -= DebouncedSave;
@@ -138,8 +140,11 @@
 
     private async void DebouncedSave(object? sender, System.Timers.ElapsedEventArgs e)
     {
+        if (_disposed) return;
         await InvokeAsync(async () =>
         {
+            if (_disposed) return;
+
             if (_isSaving)
             {
                 _pendingSave = true;
@@ -148,7 +153,7 @@
 
             await SaveAsync();
 
-            if (_pendingSave)
+            if (_pendingSave && !_disposed)
             {
                 _pendingSave = false;
                 await SaveAsync();
@@ -157,13 +162,14 @@
     }
 
     // ---- STATE SYNC ----
-
     private async Task SyncFromStateAsync(bool force)
     {
+        if (_disposed) return;
+
         var wasFragment = _isFragmentMode;
         _isFragmentMode = State.Selection.IsActive;
 
-        // Avoid stomping user buffer mid-typing (prevents caret jerk on round-trips)
+        // Avoid stomping buffer mid-typing
         if (_saveState == SaveState.Typing) return;
 
         if (_isFragmentMode)
@@ -200,14 +206,15 @@
     }
 
     // ---- SAVE ----
-
     private async Task SaveAsync()
     {
-        var myEpoch = ++_saveEpoch; // this save's id
-        var myEditVersionAtStart = _editVersion; // snapshot: user typing version at start
+        if (_disposed) return;
 
-        // keep your initial caret snapshot (useful if you ever want pre-change restore)
-        TextSelection startSel = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        var myEpoch = ++_saveEpoch;
+        var myEditVersionAtStart = _editVersion;
+
+        // snapshot (we restore using cached latest)
+        _ = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
         _isSaving = true;
         _savingSnapshot = editorText;
@@ -216,7 +223,7 @@
         StateHasChanged();
 
         bool userTyped = false;
-        bool didRewriteBuffer = false; // <— track if we programmatically changed editorText
+        bool didRewriteBuffer = false;
 
         if (_isFragmentMode && State.Selection.IsActive)
         {
@@ -241,7 +248,7 @@
                 var updated = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
                 if (!string.Equals(editorText, updated, StringComparison.Ordinal))
                 {
-                    editorText = updated;              // <-- only when different
+                    editorText = updated;
                     didRewriteBuffer = true;
                 }
             }
@@ -256,7 +263,7 @@
                 var cleaned = await HtmlPuid.StripPuidsAsync(State.CurrentSnippet()?.Html ?? "");
                 if (!string.Equals(editorText, cleaned, StringComparison.Ordinal))
                 {
-                    editorText = cleaned;              // <-- only when different
+                    editorText = cleaned;
                     didRewriteBuffer = true;
                 }
             }
@@ -265,21 +272,17 @@
 
         _saveState = SaveState.Saved;
         _isSaving = false;
-        StateHasChanged();
+        if (!_disposed) StateHasChanged();
 
-        // ---- RESTORE: only if we're still the latest save, no new typing happened,
-        // and we actually rewrote the buffer (programmatic value change moves the caret) ----
-        // end of SaveAsync()
-        if (didRewriteBuffer && !userTyped && myEpoch == _saveEpoch)
+        // restore caret if: latest save, no new typing, and we rewrote value
+        if (didRewriteBuffer && !userTyped && myEpoch == _saveEpoch && !_disposed && _editVersion == myEditVersionAtStart)
         {
             var latest = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
             await JS.InvokeVoidAsync("putdocText.setSel", _ta, latest.Start, latest.End);
         }
-
     }
-    
-    // ---- INSERTS ----
 
+    // ---- INSERTS ----
     private async Task InsertTpl(string kind)
     {
         var tpl = kind switch
@@ -293,24 +296,31 @@
         };
 
         await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, tpl);
-
         _saveState = SaveState.Typing;
         StartDebounce();
     }
 
-    private void ExitFragment() => State.CancelSelectionEdit();
+    private void ExitFragment()
+    {
+        State.CancelSelectionEdit();
+        _ = JS.InvokeVoidAsync("putdocPresence.releaseCurrent");
+    }
 
     public void Dispose()
     {
+        _disposed = true;
         State.Changed -= OnStateChanged;
+
         if (_debounce is not null)
         {
-            _debounce.Stop();
+            try { _debounce.Stop(); } catch { }
             _debounce.Dispose();
             _debounce = null;
         }
+
+        // be courteous on component teardown
+        _ = JS.InvokeVoidAsync("putdocPresence.releaseCurrent");
     }
 
-    // Strongly-typed sel DTO for JS interop
     public record TextSelection(int Start, int End);
 }

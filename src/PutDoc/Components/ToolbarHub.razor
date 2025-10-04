@@ -1,57 +1,130 @@
-@* ToolbarHub.razor *@
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
+@inject PutDoc.Services.PresenceService Presence
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
 @code {
     DotNetObjectReference<ToolbarHub>? _selfRef;
+    string _clientId = "";
+    string _sessionId = "";
+    //string _userId => State.CurrentUserId ?? "local-user"; // adjust to your auth/user
+    string _userId => "local-user"; // adjust to your auth/user
+
+    // Track the current held lock (one at a time editor UX)
+    LockKey? _heldKey;
+    System.Threading.Timer? _hbTimer;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+
         _selfRef = DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("putdocEnh.setHub", _selfRef);
+
+        _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId");
+        _clientId = await JS.InvokeAsync<string>("putdoc.getClientId");
     }
 
-    // Called by JS to execute actions (you already have this)
-    [JSInvokable]
-    public async Task Handle(string action, string puid, string snippetIdStr)
+    // ===== Lock helpers =====
+
+    static LockKey SnippetKey(Guid docId, Guid snippetId)
+        => new(docId, $"snippet:{snippetId}");
+
+    static LockKey FragmentKey(Guid docId, Guid snippetId, string puid, string scope /* "inner"|"outer" */)
+        => new(docId, $"frag:{snippetId}:{puid}:{scope}");
+
+    void StartHeartbeat(LockKey key)
     {
-        if (!Guid.TryParse(snippetIdStr, out var snippetId)) return;
+        StopHeartbeat();
+        _heldKey = key;
+        _hbTimer = new System.Threading.Timer(_ => {
+            try { Presence.Heartbeat(key, _userId, _clientId); } catch { }
+        }, null, dueTime: TimeSpan.FromSeconds(10), period: TimeSpan.FromSeconds(10));
+    }
 
-        switch (action)
+    void StopHeartbeat()
+    {
+        _hbTimer?.Dispose(); _hbTimer = null;
+        _heldKey = null;
+    }
+
+    [JSInvokable]
+    public object AcquireForEdit(string kind /* "snippet"|"fragment-inner"|"fragment-outer" */, string puid, string snippetIdStr, bool force=false)
+    {
+        if (!Guid.TryParse(snippetIdStr, out var snippetId)) return new { status = "error", message = "bad snippetId" };
+        var docId = State.Doc?.Id ?? Guid.Empty;
+        if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
+
+        LockKey key = kind.StartsWith("fragment", StringComparison.OrdinalIgnoreCase)
+            ? FragmentKey(docId, snippetId, puid ?? "", kind.EndsWith("outer", StringComparison.OrdinalIgnoreCase) ? "outer" : "inner")
+            : SnippetKey(docId, snippetId);
+
+        var (result, holder) = Presence.TryAcquire(key, _userId, _sessionId, force);
+
+        switch (result)
         {
-            case "copy":
-                await JS.InvokeVoidAsync("putdocEnh.copyByPuid", puid);
-                return;
+            case LockResult.Granted:
+            case LockResult.AlreadyHeldByYou:
+                StartHeartbeat(key);
+                return new { status = "granted" };
 
-            case "edit-inner":
-                await State.BeginFragmentEdit(snippetId, puid, PutDocState.FragmentScope.Inner);
-                await JS.InvokeVoidAsync("putdocEnh.markSelected", puid);
-                return;
+            case LockResult.Stolen:
+                StartHeartbeat(key);
+                return new { status = "stolen", prev = new { user = holder?.OwnerUserId, client = holder?.OwnerClientId } };
 
-            case "edit-outer":
-                await State.BeginFragmentEdit(snippetId, puid, PutDocState.FragmentScope.Outer);
-                await JS.InvokeVoidAsync("putdocEnh.markSelected", puid);
-                return;
+            case LockResult.Denied:
+                return new { status = "denied", holder = new { user = holder?.OwnerUserId, client = holder?.OwnerClientId } };
 
-            case "clone":
-            case "delete":
-            case "up":
-            case "down":
-                {
-                    var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
-                    if (ok)
-                    {
-                        await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
-                    }
-                    return;
-                }
+            default:
+                return new { status = "error" };
         }
     }
 
-    // NEW: HTML-on-demand for the popover (customize per kind)
+    [JSInvokable]
+    public object ReleaseCurrent()
+    {
+        if (_heldKey is { } key)
+        {
+            try { Presence.Release(key, _userId, _clientId); } catch { }
+            StopHeartbeat();
+            return new { status = "ok" };
+        }
+        return new { status = "noop" };
+    }
+
+    // ===== Actions (Auto-acquire for edit) =====
+
+    [JSInvokable]
+    public async Task<object> Handle(string action, string puid, string snippetIdStr)
+    {
+        if (!Guid.TryParse(snippetIdStr, out var snippetId)) return new { status = "error", message = "bad snippetId" };
+
+        // Auto-acquire for edit actions
+        if (action is "edit-inner" or "edit-outer")
+        {
+            var kind = action == "edit-outer" ? "fragment-outer" : "fragment-inner";
+            var acquire = AcquireForEdit(kind, puid, snippetIdStr, force: false);
+            if ((acquire as dynamic).status != "granted" && (acquire as dynamic).status != "stolen")
+            {
+                return acquire; // denied or error → let JS decide whether to prompt "Take over"
+            }
+
+            // proceed to open editor
+            await State.BeginFragmentEdit(snippetId, puid, action == "edit-outer"
+                ? PutDocState.FragmentScope.Outer
+                : PutDocState.FragmentScope.Inner);
+
+            await JS.InvokeVoidAsync("putdocEnh.markSelected", puid);
+            return new { status = "ok" };
+        }
+
+        // Non-edit mutations delegate to your HtmlTransformService as before
+        var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
+        if (ok) return new { status = "ok" };
+        return new { status = "error" };
+    }
+
     [JSInvokable]
     public Task<string> GetMenuHtml(string kind, string puid, string snippetIdStr)
     {
@@ -83,10 +156,12 @@
 ";
         return Task.FromResult(html);
     }
-
-    public ValueTask DisposeAsync()
+    
+    public async ValueTask DisposeAsync()
     {
+        try { ReleaseCurrent(); } catch { }
+        StopHeartbeat();
         _selfRef?.Dispose();
-        return ValueTask.CompletedTask;
+        await Task.CompletedTask;
     }
 }

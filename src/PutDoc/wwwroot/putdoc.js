@@ -14,6 +14,23 @@
         return '';
     };
 
+    window.putdoc.getClientId = function() {
+        try {
+            let id = localStorage.getItem("pd.clientId");
+            if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now()+Math.random()).toString(36)); localStorage.setItem("pd.clientId", id); }
+            return id;
+        } catch { return "anon-" + Math.random().toString(36).slice(2); }
+    };
+
+    window.putdoc.getSessionId = function () {
+        try {
+            let id = sessionStorage.getItem("pd.sessionId");
+            if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)); sessionStorage.setItem("pd.sessionId", id); }
+            return id;
+        } catch { return "sess-" + Math.random().toString(36).slice(2); }
+    };
+
+
     window.putdocLayout = (function () {
         function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
         function px(n) { return `${Math.round(n)}px`; }
@@ -313,6 +330,7 @@
         let __hub = null; // DotNetObjectReference set by ToolbarHub once
         let __currentOpen = null;
         function setHub(dotNetRef) { __hub = dotNetRef; }
+        function getHub() { return __hub; }
 
         // Ensure container can host absolutely positioned toolbar
         function ensurePositioned(el) {
@@ -416,7 +434,21 @@
                 btn.addEventListener('click', async () => {
                     const act = btn.getAttribute('data-act');
                     if (!__hub || !act) return;
-                    await __hub.invokeMethodAsync('Handle', act, puid, snippetId);
+
+                    // For edit actions, try acquire → prompt override if denied
+                    if (act === 'edit-inner' || act === 'edit-outer') {
+                        const kind = (act === 'edit-outer') ? 'fragment-outer' : 'fragment-inner';
+                        let res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ false);
+                        if (res?.status === 'denied') {
+                            // simple prompt; replace with your nicer UI if you like
+                            const ok = confirm(`Held by ${res.holder?.user ?? 'someone'}. Take over?`);
+                            if (!ok) return;
+                            res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ true);
+                            if (res?.status !== 'granted' && res?.status !== 'stolen') return;
+                        }
+                    }
+
+                    const out = await __hub.invokeMethodAsync('Handle', act, puid, snippetId);
                     closeCurrent(false);
                 });
             });
@@ -518,7 +550,7 @@
 
 
         return {
-            setHub,
+            setHub,getHub,
             enhance, observe, enhanceById, observeById,
             copyByPuid: copyByPuidClean,
             clearSelected, markSelected
@@ -550,6 +582,34 @@
                 if (layout) window.putdocLayout?.initSplitters(layout);
             } catch {}
         });
-    })(); 
+    })();
+
+    // near your other helpers:
+    window.putdocPresence = window.putdocPresence || {};
+    window.putdocPresence.releaseCurrent = async function () {
+        try {
+            if (window.__pdToolbarHandlersInstalled && window.putdocEnh.getHub()) {
+                await window.window.putdocEnh.__hub.invokeMethodAsync('ReleaseCurrent');
+            } else if (window.putdocEnh && typeof window.putdocEnh.setHub === 'function') {
+                // no-op fallback if hub isn't ready
+            }
+        } catch (e) { /* swallow */ }
+    };
+
+    window.putdocPresence.acquireSnippet = async function (snippetId, force) {
+        try {
+            const hub = window.window.putdocEnh.getHub();        // set in putdocEnh.setHub
+            if (!hub) return { status: "error", message: "hub not ready" };
+
+            let res = await hub.invokeMethodAsync("AcquireForEdit", "snippet", "", snippetId, !!force);
+            if (res?.status === "denied") {
+                const ok = confirm(`Snippet is locked by ${res.holder?.user ?? "someone"}. Take over?`);
+                if (!ok) return res;
+                res = await hub.invokeMethodAsync("AcquireForEdit", "snippet", "", snippetId, true);
+            }
+            return res;
+        } catch (e) { return { status: "error", message: String(e) }; }
+    };
+
 
 })();
