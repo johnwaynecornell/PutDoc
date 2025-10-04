@@ -1,76 +1,6 @@
 (function () {
     function uuid() { return 'p' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'') : (Date.now()+Math.random()).toString(36)); }
 
-    function ensurePuid(el) { if (!el.dataset.puid) el.dataset.puid = uuid(); return el.dataset.puid; }
-
-    function cssPathFor(el, root) {
-        const parts = [];
-        let node = el;
-        while (node && node.nodeType === 1 && node !== root) {
-            const tag = node.tagName.toLowerCase();
-            let ix = 1, sib = node;
-            while ((sib = sib.previousElementSibling) != null) if (sib.tagName === node.tagName) ix++;
-            parts.unshift(`${tag}:nth-of-type(${ix})`);
-            node = node.parentElement;
-        }
-        return parts.join(' > ');
-    }
-
-    function injectToolbar(el, actions) {
-        const old = el.querySelector(':scope > .putdoc-toolbar'); if (old) old.remove();
-        const bar = document.createElement('div');
-        bar.className = 'putdoc-toolbar';
-        bar.style.cssText = 'position:absolute; top:6px; right:6px; display:flex; gap:6px; z-index:5;';
-        for (const a of actions) {
-            const btn = document.createElement('button');
-            btn.type = 'button'; btn.textContent = a.label; btn.className = 'putdoc-btn'; btn.dataset.action = a.action;
-            bar.appendChild(btn);
-        }
-        if (getComputedStyle(el).position === 'static') el.style.position = 'relative';
-        el.prepend(bar);
-    }
-
-    window.putdocEnhance = function (container, dotnetRef) {
-        if (!container) return;
-        container.dataset.putdocRoot = '1';
-
-        const targets = container.querySelectorAll('.slf-card, .slf-brick, .prompt_area, pre');
-        for (const el of targets) {
-            ensurePuid(el);
-            if (el.tagName.toLowerCase() === 'pre') {
-                injectToolbar(el, [{ label: 'Copy', action: 'copy-code' }]);
-            } else {
-                injectToolbar(el, [
-                    { label: 'Edit',  action: 'edit' },
-                    { label: 'Clone', action: 'clone' },
-                    { label: 'Del',   action: 'delete' },
-                    { label: '↑',     action: 'up' },
-                    { label: '↓',     action: 'down' },
-                ]);
-            }
-        }
-
-        if (container._putdocBound) return;
-        container._putdocBound = true;
-
-        container.addEventListener('click', async (ev) => {
-            const btn = ev.target && ev.target.closest && ev.target.closest('.putdoc-btn'); if (!btn) return;
-            const host = btn.closest('.slf-card, .slf-brick, .prompt_area, pre'); if (!host) return;
-
-            const action = btn.dataset.action;
-            if (action === 'copy-code' && host.tagName.toLowerCase() === 'pre') {
-                const code = host.querySelector('code'); if (code) await navigator.clipboard.writeText(code.innerText);
-                return;
-            }
-
-            const puid = ensurePuid(host);
-            const path = cssPathFor(host, container);   // <-- send fallback path too
-            try {
-                await dotnetRef.invokeMethodAsync('OnDomAction', action, puid, path);
-            } catch (e) { console.error('putdoc invoke failed', e); }
-        }, { passive: true });
-    };
-
     window.putdoc = window.putdoc || {};
     window.putdoc.readClipboardText = async function () {
         try {
@@ -88,109 +18,164 @@
         function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
         function px(n) { return `${Math.round(n)}px`; }
 
-        function initSplitters(container) {
-            if (!container || container._splittersBound) return;
-            container._splittersBound = true;
 
-            // Restore saved sizes
-            try {
-                const savedW = localStorage.getItem('putdoc.indexW');
-                const savedH = localStorage.getItem('putdoc.editorH');
-                if (savedW) container.style.setProperty('--index-w', savedW);
-                if (savedH) container.style.setProperty('--editor-h', savedH);
-            } catch {}
+        function resolveEl(elOrSel) {
+            if (!elOrSel) return null;
+            if (elOrSel instanceof Element) return elOrSel;
+            // Handle Blazor ElementReference-like proxies
+            if (typeof elOrSel === "object" && elOrSel.querySelector && elOrSel.getBoundingClientRect) return elOrSel;
+            if (typeof elOrSel === "string") return document.getElementById(elOrSel) || document.querySelector(elOrSel);
+            return null;
+        }
+
+        function initSplitters(containerArg) {
+            let container =
+                resolveEl(containerArg) ||
+                document.getElementById("putdocLayout") ||
+                document.querySelector(".putdoc-layout") ||
+                document.querySelector('[data-putdoc-layout]');
+
+            if (!container) {
+                console.warn("putdocLayout.initSplitters: container not found", containerArg);
+                return;
+            }
+
+            // If not attached yet, try next frame
+            if (!container.isConnected) {
+                requestAnimationFrame(() => initSplitters(container));
+                return;
+            }
+
+            // Restore saved sizes once per container
+            if (!container._sizesRestored) {
+                container._sizesRestored = true;
+                try {
+                    const savedW = localStorage.getItem("putdoc.indexW");
+                    const savedH = localStorage.getItem("putdoc.editorH");
+                    if (savedW) container.style.setProperty("--index-w", savedW);
+                    if (savedH) container.style.setProperty("--editor-h", savedH);
+                } catch {}
+            }
 
             const vSplit = container.querySelector('[data-role="v-split"]');
             const hSplit = container.querySelector('[data-role="h-split"]');
 
-            // Drag helpers
-            function startDrag(e, axis) {
-                e.preventDefault();
-                const rect = container.getBoundingClientRect();
-                const startX = (e.touches ? e.touches[0].clientX : e.clientX);
-                const startY = (e.touches ? e.touches[0].clientY : e.clientY);
-                const startW = parseFloat(getComputedStyle(container).getPropertyValue('--index-w')) || 420;
-                const startH = parseFloat(getComputedStyle(container).getPropertyValue('--editor-h')) || 320;
+            const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+            const px = (n) => `${Math.round(n)}px`;
 
-                // Prevent text selection while dragging
-                const prevSel = document.body.style.userSelect;
-                document.body.style.userSelect = 'none';
+            function bindV(div) {
+                if (!div || div._pdBound) return;
+                div._pdBound = true;
 
-                function onMove(ev) {
-                    const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-                    const y = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+                div.addEventListener("pointerdown", (e) => {
+                    // either remove this line OR keep it and immediately focus:
+                    // e.preventDefault();
+                    div.focus({ preventScroll: true });            // <-- ensure the element is focused
+                    div.setPointerCapture(e.pointerId);
 
-                    if (axis === 'x') {
-                        // width from left edge to cursor
+                    const rect = container.getBoundingClientRect();
+                    let moved = false;
+
+                    const onMove = (ev) => {
+                        const x = ev.clientX;
                         const dx = x - rect.left;
-                        // leave room for divider + right content; clamp 240px..60% viewport
                         const w = clamp(dx, 240, Math.min(window.innerWidth * 0.6, rect.width - 240));
-                        container.style.setProperty('--index-w', px(w));
-                    } else {
-                        // height within right grid: top of right section equals container top in this layout
+                        container.style.setProperty("--index-w", px(w));
+                        moved = true;
+                    };
+                    const onUp = () => {
+                        div.releasePointerCapture(e.pointerId);
+                        window.removeEventListener("pointermove", onMove);
+                        window.removeEventListener("pointerup", onUp);
+                        if (moved) {
+                            try {
+                                const iw = getComputedStyle(container).getPropertyValue("--index-w").trim();
+                                localStorage.setItem("putdoc.indexW", iw);
+                            } catch {}
+                        }
+                    };
+
+                    window.addEventListener("pointermove", onMove);
+                    window.addEventListener("pointerup", onUp);
+                });
+
+                // keyboard support (unchanged)
+                div.addEventListener("keydown", (e) => {
+                    const step = e.shiftKey ? 40 : 16;
+                    const key = e.key || e.code;
+                    if (key === "ArrowLeft" || key === "Left") {
+                        e.preventDefault();
+                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--index-w")) || 420;
+                        const w = clamp(cur - step, 240, Math.min(window.innerWidth * 0.6, container.getBoundingClientRect().width - 240));
+                        container.style.setProperty("--index-w", px(w));
+                        try { localStorage.setItem("putdoc.indexW", px(w)); } catch {}
+                    } else if (key === "ArrowRight" || key === "Right") {
+                        e.preventDefault();
+                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--index-w")) || 420;
+                        const w = clamp(cur + step, 240, Math.min(window.innerWidth * 0.6, container.getBoundingClientRect().width - 240));
+                        container.style.setProperty("--index-w", px(w));
+                        try { localStorage.setItem("putdoc.indexW", px(w)); } catch {}
+                    }
+                });
+            }
+
+            function bindH(div) {
+                if (!div || div._pdBound) return;
+                div._pdBound = true;
+
+                div.addEventListener("pointerdown", (e) => {
+                    // e.preventDefault();
+                    div.focus({ preventScroll: true });            // <-- ensure focus
+                    div.setPointerCapture(e.pointerId);
+
+                    const rect = container.getBoundingClientRect();
+                    let moved = false;
+
+                    const onMove = (ev) => {
+                        const y = ev.clientY;
                         const dy = y - rect.top;
                         const h = clamp(dy, 200, Math.min(window.innerHeight * 0.75, rect.height - 200));
-                        container.style.setProperty('--editor-h', px(h));
-                    }
-                }
+                        container.style.setProperty("--editor-h", px(h));
+                        moved = true;
+                    };
+                    const onUp = () => {
+                        div.releasePointerCapture(e.pointerId);
+                        window.removeEventListener("pointermove", onMove);
+                        window.removeEventListener("pointerup", onUp);
+                        if (moved) {
+                            try {
+                                const eh = getComputedStyle(container).getPropertyValue("--editor-h").trim();
+                                localStorage.setItem("putdoc.editorH", eh);
+                            } catch {}
+                        }
+                    };
 
-                function onUp() {
-                    // persist sizes
-                    try {
-                        const iw = getComputedStyle(container).getPropertyValue('--index-w').trim();
-                        const eh = getComputedStyle(container).getPropertyValue('--editor-h').trim();
-                        localStorage.setItem('putdoc.indexW', iw);
-                        localStorage.setItem('putdoc.editorH', eh);
-                    } catch {}
-                    // cleanup
-                    document.removeEventListener('mousemove', onMove);
-                    document.removeEventListener('mouseup', onUp);
-                    document.removeEventListener('touchmove', onMove);
-                    document.removeEventListener('touchend', onUp);
-                    document.body.style.userSelect = '';
-                }
+                    window.addEventListener("pointermove", onMove);
+                    window.addEventListener("pointerup", onUp);
+                });
 
-                document.addEventListener('mousemove', onMove);
-                document.addEventListener('mouseup', onUp);
-                document.addEventListener('touchmove', onMove, { passive: false });
-                document.addEventListener('touchend', onUp);
-            }
-
-            if (vSplit) {
-                vSplit.addEventListener('mousedown', (e) => startDrag(e, 'x'));
-                vSplit.addEventListener('touchstart', (e) => startDrag(e, 'x'), { passive: false });
-                // keyboard: left/right to resize
-                vSplit.addEventListener('keydown', (e) => {
-                    const step = (e.shiftKey ? 40 : 16);
-                    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                div.addEventListener("keydown", (e) => {
+                    const step = e.shiftKey ? 40 : 16;
+                    const key = e.key || e.code;
+                    if (key === "ArrowUp" || key === "Up") {
                         e.preventDefault();
-                        const cur = parseFloat(getComputedStyle(container).getPropertyValue('--index-w')) || 420;
-                        const delta = (e.key === 'ArrowLeft' ? -step : step);
-                        const w = clamp(cur + delta, 240, Math.min(window.innerWidth * 0.6, container.getBoundingClientRect().width - 240));
-                        container.style.setProperty('--index-w', px(w));
-                        try { localStorage.setItem('putdoc.indexW', px(w)); } catch {}
+                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--editor-h")) || 320;
+                        const h = clamp(cur - step, 200, Math.min(window.innerHeight * 0.75, container.getBoundingClientRect().height - 200));
+                        container.style.setProperty("--editor-h", px(h));
+                        try { localStorage.setItem("putdoc.editorH", px(h)); } catch {}
+                    } else if (key === "ArrowDown" || key === "Down") {
+                        e.preventDefault();
+                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--editor-h")) || 320;
+                        const h = clamp(cur + step, 200, Math.min(window.innerHeight * 0.75, container.getBoundingClientRect().height - 200));
+                        container.style.setProperty("--editor-h", px(h));
+                        try { localStorage.setItem("putdoc.editorH", px(h)); } catch {}
                     }
                 });
             }
 
-            if (hSplit) {
-                hSplit.addEventListener('mousedown', (e) => startDrag(e, 'y'));
-                hSplit.addEventListener('touchstart', (e) => startDrag(e, 'y'), { passive: false });
-                // keyboard: up/down to resize
-                hSplit.addEventListener('keydown', (e) => {
-                    const step = (e.shiftKey ? 40 : 16);
-                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        const cur = parseFloat(getComputedStyle(container).getPropertyValue('--editor-h')) || 320;
-                        const delta = (e.key === 'ArrowUp' ? -step : step);
-                        const h = clamp(cur + delta, 200, Math.min(window.innerHeight * 0.75, container.getBoundingClientRect().height - 200));
-                        container.style.setProperty('--editor-h', px(h));
-                        try { localStorage.setItem('putdoc.editorH', px(h)); } catch {}
-                    }
-                });
-            }
+            bindV(vSplit);
+            bindH(hSplit);
         }
-
         return { initSplitters };
     })();
 
@@ -232,7 +217,7 @@
             // seed + track caret on typical events
             updateCache(ta);
             // In putdocText module (augment the tracker you added earlier)
-            ['beforeinput','input','keyup','mouseup','select','focus'].forEach(evt =>
+            ['beforeinput','input','keyup','mouseup','pointerup','select','focus'].forEach(evt =>
                 ta.addEventListener(evt, () => updateCache(ta))
             );
 
@@ -346,21 +331,20 @@
         // --- Copy helpers (unchanged) ---
         function sanitizeForExport(node) {
             const clone = node.cloneNode(true);
-            // strip toolbars
+
+            // Remove any injected toolbars
             clone.querySelectorAll('putdoc-toolbar').forEach(n => n.remove());
-            // strip puid
+
+            // Remove data-puid + selection flags
             if (clone.removeAttribute) clone.removeAttribute('data-puid');
             clone.querySelectorAll('[data-puid]').forEach(n => n.removeAttribute('data-puid'));
-
             if (clone.removeAttribute) clone.removeAttribute('data-selected');
             clone.querySelectorAll('[data-selected]').forEach(n => n.removeAttribute('data-selected'));
 
-
-
-
-            // editor-only attrs
+            // Remove editor-only bits
             clone.querySelectorAll('[contenteditable]').forEach(n => n.removeAttribute('contenteditable'));
-            return clone.outerHTML;
+
+            return clone.outerHTML; // <-- put this back
         }
 
         async function copyByPuidClean(puid) {
@@ -510,25 +494,34 @@
             enhance(el, sid);
         }
 
-        // Watch for dynamic changes (optional)
+        // Watch for dynamic changes
+        // putdocEnh.js
         function observe(container, snippetId) {
+            if (!container) return;
+            if (container._pdObserver) {           // already bound → just (re)enhance
+                enhance(container, snippetId);
+                return container._pdObserver;
+            }
             const mo = new MutationObserver(() => enhance(container, snippetId));
+            container._pdObserver = mo;            // cache on the element
             mo.observe(container, { childList: true, subtree: true });
             enhance(container, snippetId);
             return mo;
         }
+
         function observeById(id) {
             const el = document.getElementById(id);
             if (!el) return;
             const sid = el.getAttribute('data-snippet-id') || '';
-            observe(el, sid);
+            observe(el, sid);                       // will no-op if already observed
         }
+
 
         return {
             setHub,
             enhance, observe, enhanceById, observeById,
             copyByPuid: copyByPuidClean,
-            markSelected
+            clearSelected, markSelected
         };
     })();
 

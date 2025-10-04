@@ -42,7 +42,10 @@
             case "down":
                 {
                     var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
-                    if (ok) await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
+                    if (ok)
+                    {
+                        await State.SetSnippetHtml(State.CurrentSnippet()?.Html ?? "", isRawFromEditor: false);
+                    }
                     return;
                 }
         }

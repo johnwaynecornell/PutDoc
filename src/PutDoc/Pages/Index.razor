@@ -55,7 +55,7 @@ else
          if (firstRender)
          {
              await JS.InvokeVoidAsync("putdocHeader.init");
-             await JS.InvokeVoidAsync("putdocLayout.initSplitters", _layoutRef);
+             await JS.InvokeVoidAsync("putdocLayout.initSplitters",  "putdocLayout");
          }
      }
 }
@@ -169,6 +169,7 @@ else
         margin: 0;
         position: relative;
         z-index: 10;                         /* above scrolling panes */
+        touch-action: none; /* allow pointermove without scrolling the page */
     }
 
     /* Vertical divider between Index and Right */
