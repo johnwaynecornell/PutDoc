@@ -3,6 +3,7 @@
 using AngleSharp;
 using AngleSharp.Dom;
 using AngleSharp.Html;
+using AngleSharp.Html.Parser; 
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop; // for .ToHtml()
 
@@ -10,16 +11,17 @@ namespace PutDoc.Services;
 //pc06d9280230f4fe6b9480035d0726cd6
 public static class HtmlTransformService
 {
+    static readonly HtmlParser FragParser = new HtmlParser();
     public static string SerializeFragment(INode root)
     {
         // Preserves text nodes, comments, and elements—plus their whitespace.
         return string.Concat(root.ChildNodes.Select(n => n.ToHtml()));
     }
-    
-    
+
+
     static readonly IBrowsingContext Ctx =
         BrowsingContext.New(Configuration.Default.WithDefaultLoader());
-    
+
     static IElement? FindByPuid(INode root, string puid)
     {
         if (root is null || string.IsNullOrWhiteSpace(puid)) return null;
@@ -40,22 +42,46 @@ public static class HtmlTransformService
     static void ReassignDuplicatePuids(IElement scope)
     {
         var groups = scope.QuerySelectorAll("[data-puid]")
-                          .GroupBy(e => e.GetAttribute("data-puid") ?? "");
+            .GroupBy(e => e.GetAttribute("data-puid") ?? "");
         foreach (var g in groups)
         {
             bool first = true;
             foreach (var el in g)
             {
-                if (first) { first = false; continue; }
+                if (first)
+                {
+                    first = false;
+                    continue;
+                }
+
                 el.SetAttribute("data-puid", "p" + Guid.NewGuid().ToString("N"));
             }
         }
     }
 
-    public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid, string? path = null)
-    {   
-        var page = state.CurrentPage(); if (page is null) return false;
-        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return false;
+    public static async Task<string> FreshenPuids(string html)
+    {
+        var doc = await Ctx.OpenAsync(req => req.Content(html ?? ""));
+        var root = doc.Body!;
+
+        foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
+        {
+            if (el.HasAttribute("data-puid")) el.RemoveAttribute("data-puid");
+            EnsurePuid(el);
+        }
+
+        // 👇 was: root.OuterHtml
+        return SerializeFragment(root); // emits body.childNodes joined, whitespace preserved
+    }
+
+    public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid,
+        string? path = null)
+    {
+        var page = state.CurrentPage();
+        if (page is null) return false;
+        state.SelectSnippet(snippetId);
+        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
+        if (snip is null) return false;
 
         var doc = await Ctx.OpenAsync(req => req.Content(snip.Html ?? ""));
         var root = doc.Body!;
@@ -86,9 +112,9 @@ public static class HtmlTransformService
             case "edit":
                 state.BeginSelectionEdit(snippetId, puid /* store puid here */, target.OuterHtml);
                 return true;
-               
+
             case "clone":
-                target.Insert(AdjacentPosition.AfterEnd, target.OuterHtml);
+                target.Insert(AdjacentPosition.AfterEnd, await FreshenPuids(target.OuterHtml));
                 changed = true;
                 break;
 
@@ -104,6 +130,7 @@ public static class HtmlTransformService
                     target.Remove();
                     changed = true;
                 }
+
                 break;
 
             case "down":
@@ -113,6 +140,7 @@ public static class HtmlTransformService
                     target.Remove();
                     changed = true;
                 }
+
                 break;
         }
 
@@ -122,70 +150,89 @@ public static class HtmlTransformService
             if (FindByPuid(root, puid) is not null && !string.IsNullOrWhiteSpace(path))
             {
                 var justPersistPuids = SerializeFragment(root);
-                await state.SetSnippetHtml(justPersistPuids);
+                if (!string.Equals(justPersistPuids, snip.Html, StringComparison.Ordinal))
+                {
+                    await state.SetSnippetHtml(justPersistPuids);
+                }
+
                 state.SelectSnippet(snippetId);
             }
+
             return true;
         }
 
         // After structural changes, ensure uniqueness and persist
         ReassignDuplicatePuids(root);
         var newHtml = SerializeFragment(root);
-        await state.SetSnippetHtml(newHtml, false);
+        if (!string.Equals(newHtml, snip.Html, StringComparison.Ordinal))
+        {
+            await state.SetSnippetHtml(newHtml, isRawFromEditor: false);
+        }
+        
         state.SelectSnippet(snippetId);
         return true;
     }
 
-public static async Task<string?> ExtractFragmentInnerByPuidAsync(string html, string puid)
-{
-    var doc = await Ctx.OpenAsync(req => req.Content(html));
-    var el  = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
-    return el?.InnerHtml;
-}
-
-public static async Task<string?> ExtractFragmentOuterByPuidAsync(string html, string puid)
-{
-    var doc = await Ctx.OpenAsync(req => req.Content(html));
-    var el  = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
-    return el?.OuterHtml;
-}
-
-/// <summary>
-/// Replaces either the innerHTML or the outer element by PUID.
-/// Guarantees the resulting element retains the same data-puid when replacing outer.
-/// </summary>
-public static async Task<string?> ReplaceFragmentByPuidAsync(
-    string html, string puid, string replacement, bool replaceOuter)
-{
-    var doc = await Ctx.OpenAsync(req => req.Content(html));
-    var el  = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
-    if (el is null) return null;
-
-    if (replaceOuter)
+    public static async Task<string?> ExtractFragmentInnerByPuidAsync(string html, string puid)
     {
-        // parse replacement as HTML
-        var wrapper = doc.CreateElement("div");
-        wrapper.InnerHtml = replacement;
-
-        // pick the first element child; if none, bail
-        var newEl = wrapper.FirstElementChild;
-        if (newEl is null) return null;
-
-        // ensure we keep same PUID
-        if (!newEl.HasAttribute("data-puid"))
-            newEl.SetAttribute("data-puid", puid);
-
-        el.Replace(newEl);
-    }
-    else
-    {
-        el.InnerHtml = replacement;
+        var doc = await Ctx.OpenAsync(req => req.Content(html));
+        var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+        return el?.InnerHtml;
     }
 
-    // Serialize preserving text/whitespace (use your existing serializer)
-    var root = doc.Body ?? doc.DocumentElement;
-    return SerializeFragment(root);
-    //return await HtmlSerialize.PreserveAllAsync(root!); // <- use the same method you already adopted
-}
+    public static async Task<string?> ExtractFragmentOuterByPuidAsync(string html, string puid)
+    {
+        var doc = await Ctx.OpenAsync(req => req.Content(html));
+        var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+        return el?.OuterHtml;
+    }
+
+    /// <summary>
+    /// Replaces either the innerHTML or the outer element by PUID.
+    /// Guarantees the resulting element retains the same data-puid when replacing outer.
+    /// </summary>
+    public static async Task<string?> ReplaceFragmentByPuidAsync(
+        string html, string puid, string replacement, bool replaceOuter)
+    {
+        var doc = await Ctx.OpenAsync(req => req.Content(html));
+        var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+        if (el is null) return null;
+
+        if (replaceOuter)
+        {
+            // Parse the replacement as a fragment in the *context* of the target element.
+            // This ensures correct adoption (same document) and proper handling of void elements, etc.
+            var nodes = FragParser.ParseFragment(replacement ?? string.Empty, el);
+
+            var elementNodes = nodes.OfType<IElement>().ToList();
+            var hasNonWhitespaceText = nodes.Any(n =>
+                n.NodeType == NodeType.Text && !string.IsNullOrWhiteSpace(n.TextContent));
+
+            if (elementNodes.Count == 1 && !hasNonWhitespaceText)
+            {
+                // Exactly one element, no stray text → safe outer replace
+                var newEl = elementNodes[0];
+
+                // Preserve/ensure the PUID
+                if (!newEl.HasAttribute("data-puid"))
+                    newEl.SetAttribute("data-puid", puid);
+
+                el.Replace(newEl); // same-document node because of context parsing
+            }
+            else
+            {
+                // Multi-root or text present → keep the shell, replace inner
+                el.InnerHtml = replacement ?? string.Empty;
+            }
+        }
+        else
+        {
+            // Inner replace (simple path)
+            el.InnerHtml = replacement ?? string.Empty;
+        }
+
+        var root = doc.Body ?? doc.DocumentElement;
+        return SerializeFragment(root);
+    }
 
 }
