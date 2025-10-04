@@ -86,6 +86,10 @@ else
     void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
     public void Dispose() => State.Changed -= OnStateChanged;
 
+    private Guid? _lastPageId;
+    private Guid? _lastSelectedSnippetId;
+    private bool _lastActive = false;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Enhance each snippet by its DOM id
@@ -95,6 +99,21 @@ else
             var domId = $"snip-{snip.Id}";
             await JS.InvokeVoidAsync("putdocEnh.observeById", domId);
         }
+        
+        var currentPageId = page.Id;                  // if your Page has Id; otherwise omit page logic
+        var currentSelSnipId = State.SelectedSnippetId;
+        
+        var pageChanged = _lastPageId != currentPageId;
+        var snippetChanged = _lastSelectedSnippetId != currentSelSnipId;
+        
+        if (pageChanged || snippetChanged || (!State.Selection.IsActive && _lastActive))
+        {
+            await JS.InvokeVoidAsync("putdocEnh.clearSelected");
+            _lastPageId = currentPageId;
+            _lastSelectedSnippetId = currentSelSnipId;
+        }
+
+        _lastActive = State.Selection.IsActive;
         
         // highlight the live fragment (if fragment mode)
         if (State.Selection.IsActive && !string.IsNullOrWhiteSpace(State.Selection.Selector))
