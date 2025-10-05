@@ -1,11 +1,12 @@
 @inherits LayoutComponentBase
+@inject IJSRuntime JS
+
 <link href="site.css" rel="stylesheet" />
 <script src="putdoc.js" asp-append-version="true"></script>
 <script src="_framework/blazor.web.js" autostart="false"></script>
+
+
 <div class="page">
-    <header class="top-row">
-        <h1>PutDoc</h1>
-    </header>
     <main class="main">
         @Body
     </main>

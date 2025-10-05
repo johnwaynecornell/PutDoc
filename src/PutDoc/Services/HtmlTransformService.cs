@@ -74,9 +74,29 @@ public static class HtmlTransformService
         return SerializeFragment(root); // emits body.childNodes joined, whitespace preserved
     }
 
+    public static async Task<IElement> FetchTarget(PutDocState state, Guid snippetId, string puid)
+    {
+        var page = state.CurrentPage();
+        if (page is null) return null;
+        state.SelectSnippet(snippetId);
+        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
+        if (snip is null) return null;
+
+        var doc = await Ctx.OpenAsync(req => req.Content(snip.Html ?? ""));
+        var root = doc.Body!;
+
+        // Ensure actionable elements at least have *some* puid (for future)
+        foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
+            EnsurePuid(el);
+
+        var target = FindByPuid(root, puid);
+        return target;
+    }
+
     public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid,
         string? path = null)
     {
+
         var page = state.CurrentPage();
         if (page is null) return false;
         state.SelectSnippet(snippetId);
@@ -91,18 +111,7 @@ public static class HtmlTransformService
             EnsurePuid(el);
 
         var target = FindByPuid(root, puid);
-
-        // Fallback: resolve by cssPath and attach the incoming puid so future actions hit by puid.
-        if (target is null && !string.IsNullOrWhiteSpace(path))
-        {
-            var byPath = FindByPath(root, path);
-            if (byPath is not null)
-            {
-                byPath.SetAttribute("data-puid", puid);
-                target = byPath;
-            }
-        }
-
+        
         if (target is null) return false;
 
         bool changed = false;

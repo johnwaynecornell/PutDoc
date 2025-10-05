@@ -1,43 +1,104 @@
 @page "/"
 @rendermode RenderMode.InteractiveServer
+@inject PutDoc.Services.PutDocState State
+@inject PutDoc.Services.DocWriterService Writers
 
 @using PutDoc.Components
 @using Microsoft.AspNetCore.Components.Web   
 
-
-@inject PutDocState State
 @inject IJSRuntime JS
+
+<ToolbarHub/>
 
 <PageTitle>PutDoc</PageTitle>
 
-@if (State.Doc?.Collections?.Count == 0)
-{
-    <p>Loading…</p>
-}
-else
-{
-    <div class="putdoc-layout" id="putdocLayout" @ref="_layoutRef"
-         style="--index-w: 420px; --editor-h: 320px;">
+<div class="putdoc-shell">
+
+    @if (State.Doc?.Collections?.Count == 0)
+    {
+        <p>Loading…</p>
+    }
+    else
+    {
+        <div class="top-row" style="display: inline-flex"> <h1>PutDoc</h1> 
+            @if (State.Doc is not null)
+            {
+                <div style="position:sticky; top:0; z-index:1000; padding:.35rem .5rem;
+                background: #fffbe6; border-bottom:1px solid #e6db9e;
+                display:flex; gap:.5rem; align-items:center;">
+                    <span>
+                        @(State.IsReadOnly
+                            ? "Read-only in this window"
+                            : "You have write control")
+                    </span>
+
+                    <button class="btn" @onclick="TakeControl" disabled="@(!State.IsReadOnly)">
+                        Take control
+                    </button>
+                    <button class="btn" @onclick="ReleaseControl" disabled="@(State.IsReadOnly)">
+                        Release
+                    </button>
+                </div>
+            }
         
-        <aside class="index resizable-x">
-            <IndexPanel/>
-        </aside>
+        </div>
+    
+    
+        <div class="putdoc-layout" id="putdocLayout" @ref="_layoutRef"
+             style="--index-w: 420px; --editor-h: 320px;">
+        
+            <aside class="index resizable-x">
+                <IndexPanel/>
+            </aside>
 
-        <div class="v-divider" data-role="v-split" aria-label="Resize index panel" tabindex="0"></div>
+            <div class="v-divider" data-role="v-split" aria-label="Resize index panel" tabindex="0"></div>
 
-        <section class="right">
-            <div class="editor">
-                <HtmlEditor/>
-            </div>
+            <section class="right">
+                <div class="editor">
+                    <HtmlEditor/>
+                </div>
 
-            <div class="h-divider" data-role="h-split" aria-label="Resize editor panel" tabindex="0"></div>
+                <div class="h-divider" data-role="h-split" aria-label="Resize editor panel" tabindex="0"></div>
 
-            <div class="workpane">
-                <WorkPane/>
-            </div>
-        </section>
-    </div>
+                <div class="workpane">
+                    <WorkPane/>
+                </div>
+            </section>
+        </div>
 
+    }
+</div>
+
+@code {
+    
+    void OnWriterChanged(Guid docId, PutDoc.Services.WriterInfo? info)
+    {
+        if (State.Doc?.Id != docId) return;
+        // We rely on ToolbarHub to toggle State.IsReadOnly; this just forces a repaint.
+        InvokeAsync(StateHasChanged);
+    }
+
+    async Task TakeControl()
+    {
+        // Call the hub so it uses the per-window sessionId you already wired.
+        try
+        {
+            await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', true)");
+        }
+        catch { /* noop */ }
+    }
+
+    async Task ReleaseControl()
+    {
+        try { await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?..invokeMethodAsync('ReleaseDocWriter')"); }
+        catch { /* noop */ }
+    }
+
+    public void Dispose()
+    {
+        State.Changed -= OnStateChanged;
+        Writers.WriterChanged -= OnWriterChanged;
+    }
 }
 
 @code {
@@ -48,13 +109,19 @@ else
      {
          try { await State.LoadAsync(); }
          catch (Exception ex) { loadError = ex.Message; }
-     }
+      
+         State.Changed += OnStateChanged;
 
+         Writers.WriterChanged += OnWriterChanged;
+     }
+    
+     void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+     
      protected override async Task OnAfterRenderAsync(bool firstRender)
      {
          if (firstRender)
          {
-             await JS.InvokeVoidAsync("putdocHeader.init");
+             //await JS.InvokeVoidAsync("putdocHeader.init");
              //await JS.InvokeVoidAsync("putdocLayout.initSplitters",  "putdocLayout");
              await JS.InvokeVoidAsync("putdocLayout.initSplitters",  _layoutRef);
          }
@@ -93,7 +160,6 @@ else
 
     article.content {
         padding: 0 !important;
-        height: calc(100vh - var(--topbar-h));
         overflow: hidden;                 /* our grid manages scrollbars */
     }
 
@@ -105,6 +171,12 @@ else
         background-attachment: fixed;
     }
 
+    .putdoc-shell {
+        height: 100vh;
+        display: grid;
+        grid-template-rows: auto 1fr; /* header then fill */
+    }
+
     /* ---------- Main Grid (Index | Divider | Right) ---------- */
     .putdoc-layout {
         height: 100%;
@@ -113,6 +185,9 @@ else
         grid-template-columns: var(--index-w, 420px) 8px minmax(0,1fr); /* match .v-divider width */
         grid-template-rows: minmax(0,1fr);
     }
+
+    .putdoc-layout { min-height: 0; }
+    .right, .editor, .workpane, .index { min-height: 0; }
 
     /* Left pane (Index) */
     .index {

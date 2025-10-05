@@ -22,22 +22,31 @@
 }
 
 <div class="palette" style="display:flex; gap:.35rem; flex-wrap:wrap; margin-bottom:.35rem;">
-    <button type="button" class="btn" @onclick='() => InsertTpl("card")'>+ slf-card</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
+    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("card")'>+ slf-card</button>
+    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
+    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
     <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-    <button type="button" class="btn" @onclick='() => InsertTpl("table")'>+ table</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("list")'>+ list</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
+    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("table")'>+ table</button>
+    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("list")'>+ list</button>
+    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("p")'>+ paragraph</button>
     <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
 </div>
 
 <textarea @ref="_ta"
+          disabled="@State.IsReadOnly"
           class="w-full"
           style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
           @bind="EditorText"
           @bind:event="oninput">
 </textarea>
+
+@if (State.IsReadOnly)
+{
+    <div class="menu-popover" style="margin-top:.5rem">
+        This window is <strong>read-only</strong>. 
+        Open the writer controls to take control, or refresh to see latest.
+    </div>
+}
 
 @if (_staleStructural)
 {
@@ -132,9 +141,11 @@
         Invalidations.Invalidated += OnInvalidated;
         _ = SyncFromStateAsync(force: true);
     }
-    private void OnStateChanged() =>
-        _ = InvokeAsync(() => SyncFromStateAsync(force: false));
 
+    private void OnStateChanged() =>
+        _ = InvokeAsync(() => { return SyncFromStateAsync(force: false); });
+
+    
     private async Task ToggleScope()
     {
         _fragScope = (_fragScope == PutDocState.FragmentScope.Inner)
@@ -153,6 +164,8 @@
         {
             if (editorText == value) return;
             editorText = value;
+            if (State.IsReadOnly) return;    // block edits
+
             _editVersion++;
             _inputSerial++;
             _saveState = SaveState.Typing;
@@ -233,14 +246,15 @@
             _lastSnippetId = sid;
             _lastSeenContentVersion = State.ContentVersion;
             _saveState = SaveState.Idle;
-            StateHasChanged();
         }
+        
+        StateHasChanged();
     }
 
     // ---- SAVE ----
     private async Task SaveAsync()
     {
-        if (_disposed) return;
+        if (_disposed || State.IsReadOnly) return;
 
         var myEpoch = ++_saveEpoch;
         var myEditVersionAtStart = _editVersion;

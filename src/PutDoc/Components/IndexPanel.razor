@@ -39,8 +39,8 @@ else { <em>Missing root collection.</em> }
             @if (_menuOpenFor == collection.Id)
             {
                 <div class="menu-popover">
-                    <button type="button" class="btn" @onclick="() => State.CreatePage(collection.Id)">+ Page</button>
-                    <button type="button" class="btn" @onclick="() => State.CreateCollection(collection.Id)">+ Collection</button>
+                    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick="() => State.CreatePage(collection.Id)">+ Page</button>
+                    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick="() => State.CreateCollection(collection.Id)">+ Collection</button>
                 </div>
             }
 
@@ -76,13 +76,13 @@ else { <em>Missing root collection.</em> }
                             @if (_menuOpenFor == pid)
                             {
                                 <div class="menu-popover">
-                                    <button type="button" class="btn" title="Rename" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
-                                    <button type="button" class="btn" title="Move Up" @onclick="() => State.MovePage(collection.Id, pid, -1)">↑</button>
-                                    <button type="button" class="btn" title="Move Down" @onclick="() => State.MovePage(collection.Id, pid, +1)">↓</button>
-                                    <button type="button" class="btn" title="Clone" @onclick="() => State.ClonePage(collection.Id, pid)">⧉ Clone</button>
-                                    <button type="button" class="btn danger" title="Delete" @onclick="() => State.DeletePage(collection.Id, pid)">🗑 Delete</button>
+                                    <button type="button" class="btn" title="Rename" disabled="@State.IsReadOnly" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
+                                    <button type="button" class="btn" title="Move Up" disabled="@State.IsReadOnly" @onclick="() => State.MovePage(collection.Id, pid, -1)">↑</button>
+                                    <button type="button" class="btn" title="Move Down" disabled="@State.IsReadOnly" @onclick="() => State.MovePage(collection.Id, pid, +1)">↓</button>
+                                    <button type="button" class="btn" title="Clone" disabled="@State.IsReadOnly" @onclick="() => State.ClonePage(collection.Id, pid)">⧉ Clone</button>
+                                    <button type="button" class="btn danger" title="Delete" disabled="@State.IsReadOnly" @onclick="() => State.DeletePage(collection.Id, pid)">🗑 Delete</button>
                                     <span class="sep"></span>
-                                    <button type="button" class="btn primary" title="Paste HTML as new snippet" @onclick="() => PasteIntoPage(pid)">📋 Paste into Page</button>
+                                    <button type="button" class="btn primary" title="Paste HTML as new snippet" disabled="@State.IsReadOnly" @onclick="() => PasteIntoPage(pid)">📋 Paste into Page</button>
                                 </div>
                             }
                         </li>

@@ -5,8 +5,6 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
-<ToolbarHub />
-
 <h3 class="font-semibold mb-2">WorkPane — Snippets in Page</h3>
 
 @if (_staleStructural)
@@ -33,12 +31,14 @@
             </div>
 
             <div style="padding:.5rem; display:flex; gap:.5rem; border-top:1px solid #eee;">
-                <button type='button' class='btn' @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button>
-                <button type='button' class='btn' @onclick='() => State.DeleteSnippet(snip.Id)'>Delete</button>
-                <button type='button' class='btn' @onclick='() => State.CloneSnippet(snip.Id)'>Clone</button>
+                @* <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button> *@
+
+                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.DeleteSnippet(snip.Id)'>Delete</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.CloneSnippet(snip.Id)'>Clone</button>
                 <button type='button' class='btn' @onclick='() => CopyToClipboard(snip.Html ?? "")'>Copy</button>
-                <button type='button' class='btn' @onclick='() => State.MoveSnippet(snip.Id, -1)'>↑</button>
-                <button type='button' class='btn' @onclick='() => State.MoveSnippet(snip.Id, +1)'>↓</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.MoveSnippet(snip.Id, -1)'>↑</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnly" onclick='() => State.MoveSnippet(snip.Id, +1)'>↓</button>
 
                 <!-- Acquire lock before selecting snippet -->
                 <button type='button'
@@ -47,9 +47,9 @@
                     Edit
                 </button>
 
-                <button type='button' class='btn' @onclick='() => InsertTemplate(snip.Id, TemplateKind.Card)'>+ slf-card</button>
-                <button type='button' class='btn' @onclick='() => InsertTemplate(snip.Id, TemplateKind.Brick)'>+ slf-brick</button>
-                <button type='button' class='btn' @onclick='() => InsertTemplate(snip.Id, TemplateKind.Prompt)'>+ prompt</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Card)'>+ slf-card</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Brick)'>+ slf-brick</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Prompt)'>+ prompt</button>
             </div>
         </div>
     }

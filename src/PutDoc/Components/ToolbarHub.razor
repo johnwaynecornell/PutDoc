@@ -2,7 +2,10 @@
 @inject PutDoc.Services.PutDocState State
 @inject PutDoc.Services.PresenceService Presence
 @inject PutDoc.Services.DocInvalidationService Invalidations
+@inject DocWriterService Writers
 @inject IJSRuntime JS
+@using AngleSharp.Dom
+@inject NavigationManager Nav
 @implements IAsyncDisposable
 
 @code {
@@ -14,7 +17,10 @@
 
     // Track the current held lock (one at a time editor UX)
     LockKey? _heldKey;
-    System.Threading.Timer? _hbTimer;
+    System.Threading.Timer? _hbTimer; //Presence
+    System.Threading.Timer? _hb; //DocWriter
+    bool _isWriter;
+
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -25,6 +31,63 @@
 
         _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId");
         _clientId = await JS.InvokeAsync<string>("putdoc.getClientId");
+        
+        State.Changed += StateOnChanged;
+        Writers.WriterChanged += WritersOnWriterChanged;
+        
+        await AcquireDocWriter(false);
+    }
+
+    private void WritersOnWriterChanged(Guid docId, WriterInfo? writerInfo)
+    {
+        if (State.Doc?.Id != docId) return;
+
+        var isMe = writerInfo is not null && writerInfo.SessionId == _sessionId;
+        State.SetReadOnly(!isMe);
+
+        // Optional: if we lost write, close any open toolbars to avoid "dead" buttons
+        if (!isMe)
+            _ = JS.InvokeVoidAsync("putdocEnh.closeAllToolbars");
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void StateOnChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task<object> AcquireDocWriter(bool force)
+    {
+        var docId = State.Doc?.Id ?? Guid.Empty;
+        if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
+
+        var (res, prev) = Writers.TryBecomeWriter(docId, _userId, _sessionId, force);
+        _isWriter = res is WriterResult.Granted or WriterResult.AlreadyYou or WriterResult.Stolen;
+
+        State.SetReadOnly(!_isWriter);  // <-- add SetReadOnly(bool) on PutDocState if not present
+        
+        if (_isWriter)
+        {
+            _hb?.Dispose();
+            _hb = new System.Threading.Timer(_ => {
+                try { Writers.Heartbeat(docId, _sessionId); } catch {}
+            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        }
+
+        return new { status = _isWriter ? "writer" : "readonly", prev = prev?.SessionId };
+    }
+
+    [JSInvokable]
+    public object ReleaseDocWriter()
+    {
+        var docId = State.Doc?.Id ?? Guid.Empty;
+        if (docId != Guid.Empty) Writers.Release(docId, _sessionId);
+        _isWriter = false;
+        State.SetReadOnly(true);
+        _hb?.Dispose(); _hb = null;
+        return new { status = "ok" };
     }
 
     // ===== Lock helpers =====
@@ -50,6 +113,23 @@
         _heldKey = null;
     }
 
+    [JSInvokable]
+    public async Task<object> OpenFragment(string kind /* "fragment-inner"/"fragment-outer" */,
+        string puid,
+        string snippetIdStr)
+    {
+        if (!Guid.TryParse(snippetIdStr, out var snippetId))
+            return new { status = "error", message = "bad snippetId" };
+
+        var scope = kind == "fragment-outer"
+            ? PutDocState.FragmentScope.Outer
+            : PutDocState.FragmentScope.Inner;
+
+        await State.BeginFragmentEdit(snippetId, puid, scope);
+        await JS.InvokeVoidAsync("putdocEnh.markSelected", puid);
+        return new { status = "ok" };
+    }
+    
     [JSInvokable]
     public object AcquireForEdit(string kind /* "snippet"|"fragment-inner"|"fragment-outer" */, string puid, string snippetIdStr, bool force=false)
     {
@@ -120,6 +200,25 @@
             return new { status = "ok" };
         }
 
+        if (action == "copy")
+        {
+            await JS.InvokeVoidAsync("putdocEnh.copyByPuid", puid);
+            
+            return new { status = "ok" };
+        }
+
+        
+        if (action == "copy")
+        {
+            IElement target = await HtmlTransformService.FetchTarget(State, snippetId, puid);
+            if (target==null) return new { status = "error" };
+         
+            string text = await HtmlPuid.StripPuidsAsync(target.OuterHtml);
+            await CopyToClipboard(text);
+            
+            return new { status = "ok" };
+        }
+        
         // Non-edit mutations delegate to your HtmlTransformService as before
         var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
         if (ok)
@@ -133,6 +232,10 @@
         }
         return new { status = "error" };
     }
+    
+    async Task CopyToClipboard(string html) =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", html);
+
 
     [JSInvokable]
     public Task<string> GetMenuHtml(string kind, string puid, string snippetIdStr)
@@ -147,27 +250,31 @@
             _    => ""
         };
 
-        // Note: data-act values map to your Handle(...) actions.
+        var roAttr = State.IsReadOnly ? @"data-readonly=""true""" : "";
+        var disable = State.IsReadOnly ? @"disabled=""disabled""" : "";
+        
+        // Note: keep Edit buttons enabled; structural actions are disabled when RO.
         var html = $@"
-<div class=""menu-popover pd-toolbar-panel"" role=""menu"" data-kind=""{kind}"">
+<div class=""menu-popover pd-toolbar-panel"" role=""menu"" data-kind=""{kind}"" {roAttr}>
   <div class=""toolbar-row"">
     <button type=""button"" class=""btn""        data-act=""copy"">Copy</button>
     <button type=""button"" class=""btn""        data-act=""edit-inner"">Edit</button>
     <button type=""button"" class=""btn""        data-act=""edit-outer"">Edit&nbsp;Outer</button>
     <span class=""sep""></span>
-    <button type=""button"" class=""btn""        data-act=""clone"">Clone</button>
-    <button type=""button"" class=""btn""        data-act=""up"">↑</button>
-    <button type=""button"" class=""btn""        data-act=""down"">↓</button>
-    <button type=""button"" class=""btn danger"" data-act=""delete"">Del</button>
+    <button type=""button"" class=""btn""        {disable} data-act=""clone"">Clone</button>
+    <button type=""button"" class=""btn""        {disable} data-act=""up"">↑</button>
+    <button type=""button"" class=""btn""        {disable} data-act=""down"">↓</button>
+    <button type=""button"" class=""btn danger"" {disable} data-act=""delete"">Del</button>
     {extra}
   </div>
-</div>
-";
+</div>";
         return Task.FromResult(html);
     }
     
     public async ValueTask DisposeAsync()
     {
+        State.Changed -= StateOnChanged;
+        
         try { ReleaseCurrent(); } catch { }
         StopHeartbeat();
         _selfRef?.Dispose();

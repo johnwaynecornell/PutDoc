@@ -200,6 +200,7 @@
         function setHeaderVar() {
             const hdr = document.querySelector('.top-row'); // default Blazor header
             const h = hdr ? hdr.offsetHeight : 0;
+            //const h = 0;
             document.documentElement.style.setProperty('--topbar-h', `${h}px`);
         }
         function init() {
@@ -418,6 +419,8 @@
             if (refocus && gear) gear.focus();
             __currentOpen = null;
         }
+
+        function closeAllToolbars() { closeCurrent(true); }
         function openThis(host) {
             if (__currentOpen && __currentOpen !== host) closeCurrent(false);
             const shell = host.querySelector('.pd-inline-toolbar');
@@ -431,20 +434,33 @@
 // Helper to attach handlers inside panel
         function wirePanelActions(panelEl, puid, snippetId) {
             panelEl.querySelectorAll('[data-act]').forEach(btn => {
-                btn.addEventListener('click', async () => {
+                btn.addEventListener('click', async (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+
+                    if (btn.disabled || btn.hasAttribute('disabled')) return;
+
                     const act = btn.getAttribute('data-act');
                     if (!__hub || !act) return;
 
+                    const isRO = panelEl.getAttribute('data-readonly');
+                    
                     // For edit actions, try acquire → prompt override if denied
                     if (act === 'edit-inner' || act === 'edit-outer') {
                         const kind = (act === 'edit-outer') ? 'fragment-outer' : 'fragment-inner';
-                        let res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ false);
-                        if (res?.status === 'denied') {
-                            // simple prompt; replace with your nicer UI if you like
-                            const ok = confirm(`Held by ${res.holder?.user ?? 'someone'}. Take over?`);
-                            if (!ok) return;
-                            res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ true);
-                            if (res?.status !== 'granted' && res?.status !== 'stolen') return;
+                        if (isRO) {
+                            await __hub.invokeMethodAsync('OpenFragment', kind, puid, snippetId);
+                            closeCurrent(false);
+                            return;
+                        } else {
+                            let res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ false);
+                            if (res?.status === 'denied') {
+                                // simple prompt; replace with your nicer UI if you like
+                                const ok = confirm(`Held by ${res.holder?.user ?? 'someone'}. Take over?`);
+                                if (!ok) return;
+                                res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ true);
+                                if (res?.status !== 'granted' && res?.status !== 'stolen') return;
+                            }
                         }
                     }
 
@@ -474,26 +490,21 @@
                 const shell = this.querySelector('.pd-inline-toolbar');
                 const gear  = this.querySelector('.pd-gear');
                 const slot  = this.querySelector('.pd-toolbar-panel-slot');
-                let loaded  = false;
 
                 gear?.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     const isOpen = shell?.dataset.open === 'true';
 
                     if (!isOpen) {
-                        // Opening: fetch menu HTML on first open
-                        if (!loaded) {
-                            if (!__hub) { /* Optional: fallback to static template here */ }
-                            const html = await __hub.invokeMethodAsync('GetMenuHtml', kind, puid, snippetId);
-                            // Insert without clobbering handlers; then wire
-                            slot.innerHTML = html;
-                            // Ensure the root gets both required classes
-                            const root = slot.firstElementChild;
-                            if (root) {
-                                root.classList.add('menu-popover', 'pd-toolbar-panel');
-                                wirePanelActions(root, puid, snippetId);
-                            }
-                            loaded = true;
+                        // Always refetch fresh menu HTML — no caching
+                        if (!__hub) return;
+                        const html = await __hub.invokeMethodAsync('GetMenuHtml', kind, puid, snippetId);
+                        slot.innerHTML = html;
+
+                        const root = slot.firstElementChild;
+                        if (root) {
+                            root.classList.add('menu-popover', 'pd-toolbar-panel');
+                            wirePanelActions(root, puid, snippetId); // RO-aware action wiring
                         }
                         openThis(this);
                     } else {
@@ -502,6 +513,7 @@
                 });
             }
         }
+
         customElements.get('putdoc-toolbar') || customElements.define('putdoc-toolbar', PutDocToolbar);
         
         // Enhance a container: add toolbar to each recognized element
@@ -553,7 +565,8 @@
             setHub,getHub,
             enhance, observe, enhanceById, observeById,
             copyByPuid: copyByPuidClean,
-            clearSelected, markSelected
+            clearSelected, markSelected, 
+            closeAllToolbars
         };
     })();
 

@@ -13,6 +13,9 @@ public class PutDocState
     readonly IPutDocStore _store;
     readonly IAngleSoftFilter _filter;
 
+    public bool IsReadOnly { get; private set; }
+    public void SetReadOnly(bool ro) { if (IsReadOnly != ro) { IsReadOnly = ro; Changed?.Invoke();} }
+    
     // NEW: change event
     public event Action? Changed;
     public void Notify() => Changed?.Invoke();
