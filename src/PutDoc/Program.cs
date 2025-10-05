@@ -31,6 +31,7 @@ builder.Services.AddServerSideBlazor(options =>
 
 builder.Services.AddSingleton<IAngleSoftFilter, AngleSoftFilter>();
 builder.Services.AddSingleton<DocVersionService>();
+builder.Services.AddSingleton<DocInvalidationService>();
 builder.Services.AddSingleton<PresenceService>(); 
 builder.Services.AddSingleton<IPutDocStore, PutDocStore>();
 builder.Services.AddScoped<PutDocState>();

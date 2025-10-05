@@ -55,7 +55,8 @@ else
          if (firstRender)
          {
              await JS.InvokeVoidAsync("putdocHeader.init");
-             await JS.InvokeVoidAsync("putdocLayout.initSplitters",  "putdocLayout");
+             //await JS.InvokeVoidAsync("putdocLayout.initSplitters",  "putdocLayout");
+             await JS.InvokeVoidAsync("putdocLayout.initSplitters",  _layoutRef);
          }
      }
 }

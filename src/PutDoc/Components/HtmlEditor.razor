@@ -1,5 +1,7 @@
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
+@inject PutDoc.Services.DocInvalidationService Invalidations
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 @using PutDoc.Services
 @implements IDisposable
@@ -37,6 +39,31 @@
           @bind:event="oninput">
 </textarea>
 
+@if (_staleStructural)
+{
+    <div style="
+        position:relative;">
+        <div style="
+            position:absolute; inset:0; 
+            background: rgba(255,255,200,0.9);
+            border:1px solid #cc9; border-radius:.5rem; 
+            display:flex; flex-direction:column; gap:.5rem;
+            padding:.75rem; z-index: 50;">
+            <div style="font-weight:700;">Changes were made in another window</div>
+            <div style="font-size:.9rem;">
+                To avoid conflicts, refresh this editor before continuing.
+            </div>
+            <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+                <button class="btn" @onclick="CopyBuffer">Copy current text</button>
+                <button class="btn primary" @onclick="@(() => Nav.NavigateTo(Nav.Uri, forceLoad: true))">
+                    Refresh page
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+
 @code {
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -44,6 +71,7 @@
         {
             await JS.InvokeVoidAsync("putdocText.bindTabIndent", _ta);
             await JS.InvokeVoidAsync("putdocText.initEditor", _ta);
+            _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId"); // per-window
         }
     }
 }
@@ -71,6 +99,10 @@
     // debounce timer (autosave)
     private System.Timers.Timer? _debounce;
     private const int DebounceMs = 600;
+    
+    private bool _staleStructural;
+    private string _sessionId = "";
+
 
     // status
     private enum SaveState { Idle, Typing, Saving, Saved }
@@ -97,9 +129,9 @@
     protected override void OnInitialized()
     {
         State.Changed += OnStateChanged;
+        Invalidations.Invalidated += OnInvalidated;
         _ = SyncFromStateAsync(force: true);
     }
-
     private void OnStateChanged() =>
         _ = InvokeAsync(() => SyncFromStateAsync(force: false));
 
@@ -305,12 +337,25 @@
         State.CancelSelectionEdit();
         _ = JS.InvokeVoidAsync("putdocPresence.releaseCurrent");
     }
-
+    
+    private async Task CopyBuffer() =>
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", editorText ?? "");
+    
+    private void OnInvalidated(Guid docId, string actorSessionId, bool structural, int newRev)
+    {
+        if (State.Doc?.Id != docId) return;
+        if (!structural) return;                 // only hard-stop on structural
+        if (actorSessionId == _sessionId) return; // ignore my own change
+        _staleStructural = true;
+        InvokeAsync(StateHasChanged);
+    }
+    
     public void Dispose()
     {
         _disposed = true;
         State.Changed -= OnStateChanged;
-
+        Invalidations.Invalidated -= OnInvalidated;
+        
         if (_debounce is not null)
         {
             try { _debounce.Stop(); } catch { }

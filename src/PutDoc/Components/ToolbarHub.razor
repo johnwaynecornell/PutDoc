@@ -1,6 +1,7 @@
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
 @inject PutDoc.Services.PresenceService Presence
+@inject PutDoc.Services.DocInvalidationService Invalidations
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -121,7 +122,15 @@
 
         // Non-edit mutations delegate to your HtmlTransformService as before
         var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
-        if (ok) return new { status = "ok" };
+        if (ok)
+        {
+            var structural = action is "clone" or "delete" or "up" or "down" or "edit-outer";
+            if (structural && State.Doc is { } doc)
+            {
+                Invalidations.Bump(doc.Id, _sessionId, structural: true);
+            }
+            return new { status = "ok" };
+        }
         return new { status = "error" };
     }
 

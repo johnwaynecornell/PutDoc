@@ -1,11 +1,21 @@
 @using System.Text.Json
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
+@inject PutDoc.Services.DocInvalidationService Invalidations
+@inject NavigationManager Nav
 @inject IJSRuntime JS
 
 <ToolbarHub />
 
 <h3 class="font-semibold mb-2">WorkPane — Snippets in Page</h3>
+
+@if (_staleStructural)
+{
+    <div class="menu-popover" style="margin:.5rem 0;">
+        A structural change happened in another window.
+        <button class="btn primary" @onclick="@(() => Nav.NavigateTo(Nav.Uri, forceLoad:true))">Refresh</button>
+    </div>
+}
 
 @if (State.CurrentPage() is { } _page)
 {
@@ -68,7 +78,10 @@ else
     private Guid? _lastPageId;
     private Guid? _lastSelectedSnippetId;
     private bool _lastActive = false;
-
+    
+    private bool _staleStructural;
+    private string _sessionId = "";
+    
     async Task CopyToClipboard(string html) =>
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", html);
 
@@ -115,10 +128,29 @@ else
         }
     }
 
-    protected override void OnInitialized() => State.Changed += OnStateChanged;
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+        Invalidations.Invalidated += OnInvalidated;
+    }
+    
     void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
-    public void Dispose() => State.Changed -= OnStateChanged;
+    
+    private void OnInvalidated(Guid docId, string actorSessionId, bool structural, int newRev)
+    {
+        if (State.Doc?.Id != docId) return;
+        if (!structural) return;
+        if (actorSessionId == _sessionId) return;
+        _staleStructural = true;
+        InvokeAsync(StateHasChanged);
+    }
 
+    public new void Dispose()
+    {
+        State.Changed -= OnStateChanged;
+        Invalidations.Invalidated -= OnInvalidated;
+    }
+    
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Enhance & observe each snippet by its DOM id (idempotent on JS side)
@@ -128,6 +160,10 @@ else
             var domId = $"snip-{snip.Id}";
             await JS.InvokeVoidAsync("putdocEnh.observeById", domId);
         }
+        
+        if (firstRender)
+            _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId");
+
 
         // Clear previous highlight when page or selected snippet changed,
         // or when fragment mode just deactivated.
