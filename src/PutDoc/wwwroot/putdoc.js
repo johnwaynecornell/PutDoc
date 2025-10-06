@@ -31,170 +31,126 @@
     };
 
 
+    // putdoc.js
     window.putdocLayout = (function () {
         function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
         function px(n) { return `${Math.round(n)}px`; }
 
-
-        function resolveEl(elOrSel) {
-            if (!elOrSel) return null;
-            if (elOrSel instanceof Element) return elOrSel;
-            // Handle Blazor ElementReference-like proxies
-            if (typeof elOrSel === "object" && elOrSel.querySelector && elOrSel.getBoundingClientRect) return elOrSel;
-            if (typeof elOrSel === "string") return document.getElementById(elOrSel) || document.querySelector(elOrSel);
+        function resolve(elOrSelector) {
+            if (!elOrSelector) return null;
+            if (typeof elOrSelector === 'string') return document.querySelector(elOrSelector);
+            // If Blazor ElementReference is passed and is already a DOM node, just use it
+            try { if (elOrSelector && elOrSelector.querySelector) return elOrSelector; } catch {}
             return null;
         }
 
-        function initSplitters(containerArg) {
-            let container =
-                resolveEl(containerArg) ||
-                document.getElementById("putdocLayout") ||
-                document.querySelector(".putdoc-layout") ||
-                document.querySelector('[data-putdoc-layout]');
-
-            if (!container) {
-                console.warn("putdocLayout.initSplitters: container not found", containerArg);
+        function initSplitters(elOrSelector) {
+            const el = resolve(elOrSelector);
+            if (!el) {
+                // Retry soon; caller may be ahead of the DOM
+                requestAnimationFrame(() => {
+                    const retry = resolve(elOrSelector);
+                    if (retry) initSplitters(retry);
+                    // else: quietly give up; caller can invoke again later (idempotent)
+                });
                 return;
             }
+            if (el._splittersBound) return;
+            el._splittersBound = true;
 
-            // If not attached yet, try next frame
-            if (!container.isConnected) {
-                requestAnimationFrame(() => initSplitters(container));
-                return;
-            }
+            // Restore sizes
+            try {
+                const savedW = localStorage.getItem('putdoc.indexW');
+                const savedH = localStorage.getItem('putdoc.editorH');
+                if (savedW) el.style.setProperty('--index-w', savedW);
+                if (savedH) el.style.setProperty('--editor-h', savedH);
+            } catch {}
 
-            // Restore saved sizes once per container
-            if (!container._sizesRestored) {
-                container._sizesRestored = true;
-                try {
-                    const savedW = localStorage.getItem("putdoc.indexW");
-                    const savedH = localStorage.getItem("putdoc.editorH");
-                    if (savedW) container.style.setProperty("--index-w", savedW);
-                    if (savedH) container.style.setProperty("--editor-h", savedH);
-                } catch {}
-            }
+            const vSplit = el.querySelector('[data-role="v-split"]');
+            const hSplit = el.querySelector('[data-role="h-split"]');
 
-            const vSplit = container.querySelector('[data-role="v-split"]');
-            const hSplit = container.querySelector('[data-role="h-split"]');
+            function startDrag(e, axis) {
+                e.preventDefault();
+                const rect = el.getBoundingClientRect();
+                const startX = (e.touches ? e.touches[0].clientX : e.clientX);
+                const startY = (e.touches ? e.touches[0].clientY : e.clientY);
+                const startW = parseFloat(getComputedStyle(el).getPropertyValue('--index-w')) || 420;
+                const startH = parseFloat(getComputedStyle(el).getPropertyValue('--editor-h')) || 320;
 
-            const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-            const px = (n) => `${Math.round(n)}px`;
+                const prevSel = document.body.style.userSelect;
+                document.body.style.userSelect = 'none';
 
-            function bindV(div) {
-                if (!div || div._pdBound) return;
-                div._pdBound = true;
-
-                div.addEventListener("pointerdown", (e) => {
-                    // either remove this line OR keep it and immediately focus:
-                    // e.preventDefault();
-                    div.focus({ preventScroll: true });            // <-- ensure the element is focused
-                    div.setPointerCapture(e.pointerId);
-
-                    const rect = container.getBoundingClientRect();
-                    let moved = false;
-
-                    const onMove = (ev) => {
-                        const x = ev.clientX;
+                function onMove(ev) {
+                    const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+                    const y = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+                    if (axis === 'x') {
                         const dx = x - rect.left;
                         const w = clamp(dx, 240, Math.min(window.innerWidth * 0.6, rect.width - 240));
-                        container.style.setProperty("--index-w", px(w));
-                        moved = true;
-                    };
-                    const onUp = () => {
-                        div.releasePointerCapture(e.pointerId);
-                        window.removeEventListener("pointermove", onMove);
-                        window.removeEventListener("pointerup", onUp);
-                        if (moved) {
-                            try {
-                                const iw = getComputedStyle(container).getPropertyValue("--index-w").trim();
-                                localStorage.setItem("putdoc.indexW", iw);
-                            } catch {}
-                        }
-                    };
-
-                    window.addEventListener("pointermove", onMove);
-                    window.addEventListener("pointerup", onUp);
-                });
-
-                // keyboard support (unchanged)
-                div.addEventListener("keydown", (e) => {
-                    const step = e.shiftKey ? 40 : 16;
-                    const key = e.key || e.code;
-                    if (key === "ArrowLeft" || key === "Left") {
-                        e.preventDefault();
-                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--index-w")) || 420;
-                        const w = clamp(cur - step, 240, Math.min(window.innerWidth * 0.6, container.getBoundingClientRect().width - 240));
-                        container.style.setProperty("--index-w", px(w));
-                        try { localStorage.setItem("putdoc.indexW", px(w)); } catch {}
-                    } else if (key === "ArrowRight" || key === "Right") {
-                        e.preventDefault();
-                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--index-w")) || 420;
-                        const w = clamp(cur + step, 240, Math.min(window.innerWidth * 0.6, container.getBoundingClientRect().width - 240));
-                        container.style.setProperty("--index-w", px(w));
-                        try { localStorage.setItem("putdoc.indexW", px(w)); } catch {}
-                    }
-                });
-            }
-
-            function bindH(div) {
-                if (!div || div._pdBound) return;
-                div._pdBound = true;
-
-                div.addEventListener("pointerdown", (e) => {
-                    // e.preventDefault();
-                    div.focus({ preventScroll: true });            // <-- ensure focus
-                    div.setPointerCapture(e.pointerId);
-
-                    const rect = container.getBoundingClientRect();
-                    let moved = false;
-
-                    const onMove = (ev) => {
-                        const y = ev.clientY;
+                        el.style.setProperty('--index-w', px(w));
+                    } else {
                         const dy = y - rect.top;
                         const h = clamp(dy, 200, Math.min(window.innerHeight * 0.75, rect.height - 200));
-                        container.style.setProperty("--editor-h", px(h));
-                        moved = true;
-                    };
-                    const onUp = () => {
-                        div.releasePointerCapture(e.pointerId);
-                        window.removeEventListener("pointermove", onMove);
-                        window.removeEventListener("pointerup", onUp);
-                        if (moved) {
-                            try {
-                                const eh = getComputedStyle(container).getPropertyValue("--editor-h").trim();
-                                localStorage.setItem("putdoc.editorH", eh);
-                            } catch {}
-                        }
-                    };
+                        el.style.setProperty('--editor-h', px(h));
+                    }
+                }
+                function onUp() {
+                    try {
+                        const iw = getComputedStyle(el).getPropertyValue('--index-w').trim();
+                        const eh = getComputedStyle(el).getPropertyValue('--editor-h').trim();
+                        localStorage.setItem('putdoc.indexW', iw);
+                        localStorage.setItem('putdoc.editorH', eh);
+                    } catch {}
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                    document.removeEventListener('touchmove', onMove);
+                    document.removeEventListener('touchend', onUp);
+                    document.body.style.userSelect = prevSel;
+                }
 
-                    window.addEventListener("pointermove", onMove);
-                    window.addEventListener("pointerup", onUp);
-                });
+                document.addEventListener('mousemove', onMove);
+                document.addEventListener('mouseup', onUp);
+                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('touchend', onUp);
+            }
 
-                div.addEventListener("keydown", (e) => {
-                    const step = e.shiftKey ? 40 : 16;
-                    const key = e.key || e.code;
-                    if (key === "ArrowUp" || key === "Up") {
+            if (vSplit && !vSplit._pdKeybound) {
+                vSplit._pdKeybound = true;
+                vSplit.addEventListener('mousedown', (e) => startDrag(e, 'x'));
+                vSplit.addEventListener('touchstart', (e) => startDrag(e, 'x'), { passive: false });
+                vSplit.addEventListener('keydown', (e) => {
+                    const step = (e.shiftKey ? 40 : 16);
+                    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
                         e.preventDefault();
-                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--editor-h")) || 320;
-                        const h = clamp(cur - step, 200, Math.min(window.innerHeight * 0.75, container.getBoundingClientRect().height - 200));
-                        container.style.setProperty("--editor-h", px(h));
-                        try { localStorage.setItem("putdoc.editorH", px(h)); } catch {}
-                    } else if (key === "ArrowDown" || key === "Down") {
-                        e.preventDefault();
-                        const cur = parseFloat(getComputedStyle(container).getPropertyValue("--editor-h")) || 320;
-                        const h = clamp(cur + step, 200, Math.min(window.innerHeight * 0.75, container.getBoundingClientRect().height - 200));
-                        container.style.setProperty("--editor-h", px(h));
-                        try { localStorage.setItem("putdoc.editorH", px(h)); } catch {}
+                        const cur = parseFloat(getComputedStyle(el).getPropertyValue('--index-w')) || 420;
+                        const delta = (e.key === 'ArrowLeft' ? -step : step);
+                        const w = clamp(cur + delta, 240, Math.min(window.innerWidth * 0.6, el.getBoundingClientRect().width - 240));
+                        el.style.setProperty('--index-w', px(w));
+                        try { localStorage.setItem('putdoc.indexW', px(w)); } catch {}
                     }
                 });
             }
 
-            bindV(vSplit);
-            bindH(hSplit);
+            if (hSplit && !hSplit._pdKeybound) {
+                hSplit._pdKeybound = true;
+                hSplit.addEventListener('mousedown', (e) => startDrag(e, 'y'));
+                hSplit.addEventListener('touchstart', (e) => startDrag(e, 'y'), { passive: false });
+                hSplit.addEventListener('keydown', (e) => {
+                    const step = (e.shiftKey ? 40 : 16);
+                    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        const cur = parseFloat(getComputedStyle(el).getPropertyValue('--editor-h')) || 320;
+                        const delta = (e.key === 'ArrowUp' ? -step : step);
+                        const h = clamp(cur + delta, 200, Math.min(window.innerHeight * 0.75, el.getBoundingClientRect().height - 200));
+                        el.style.setProperty('--editor-h', px(h));
+                        try { localStorage.setItem('putdoc.editorH', px(h)); } catch {}
+                    }
+                });
+            }
         }
+
         return { initSplitters };
     })();
+
 
     window.putdocHeader = (function () {
         function setHeaderVar() {

@@ -117,13 +117,17 @@
     
      void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
      
+     private bool _splittersInited;
+
      protected override async Task OnAfterRenderAsync(bool firstRender)
      {
-         if (firstRender)
+         // The layout exists only after the doc/page is loaded.
+         if (!_splittersInited && State.Doc is not null && (State.Doc.Collections?.Count ?? 0) > 0)
          {
-             //await JS.InvokeVoidAsync("putdocHeader.init");
-             //await JS.InvokeVoidAsync("putdocLayout.initSplitters",  "putdocLayout");
-             await JS.InvokeVoidAsync("putdocLayout.initSplitters",  _layoutRef);
+             _splittersInited = true;
+             // give the DOM a tick
+             await Task.Yield();
+             await JS.InvokeVoidAsync("putdocLayout.initSplitters", "#putdocLayout");
          }
      }
 }
@@ -192,7 +196,8 @@
     /* Left pane (Index) */
     .index {
         border: 1px solid #224; border-radius: 8px; padding: 8px;
-        overflow: auto; min-height: 0; background: #fff;
+        overflow: auto; min-height: 0;
+        margin: 4px;
     }
 
     /* ---------- Right Grid (Editor | Divider | WorkPane) ---------- */
@@ -207,10 +212,11 @@
     /* Editor container: flex column, single scroll surface */
     .editor {
         border: 1px solid #224; border-radius: 8px; padding: 8px;
-        background: #fff; box-sizing: border-box;
+        box-sizing: border-box;
         display: flex; flex-direction: column;
         overflow: hidden;                  /* container does NOT scroll */
         min-height: 0;
+        margin: 4px;
     }
 
     /* Palette row keeps natural height */
@@ -231,7 +237,7 @@
     /* WorkPane box */
     .workpane {
         border: 1px solid #224; border-radius: 8px; padding: 8px;
-        overflow: auto; min-height: 0; background: #fff;
+        overflow: auto; min-height: 0; margin: 4px;
     }
 
     /* Ensure panes sit below the divider bars */
