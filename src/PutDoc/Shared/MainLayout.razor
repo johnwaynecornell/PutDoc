@@ -1,16 +1,21 @@
 @inherits LayoutComponentBase
 @inject IJSRuntime JS
-
-<link href="site.css" rel="stylesheet" />
-<script src="putdoc.js" asp-append-version="true"></script>
-<script src="_framework/blazor.web.js" autostart="false"></script>
-
+@inject NavigationManager Nav
 
 <div class="page">
     <main class="main">
         @Body
     </main>
 </div>
+
+<style>
+    body{
+      background-image: url('/bgtile_jwc_proxy.png');
+      background-repeat:repeat;
+      background-size:auto;
+      background-attachment:fixed;
+    }
+  </style>
 
 
 <style>

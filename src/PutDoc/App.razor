@@ -1,22 +1,40 @@
-@using PutDoc.Services
-@using PutDoc
-@using System
-@using System.Linq
-@using System.Collections.Generic
-@using Microsoft.JSInterop
-@using Microsoft.AspNetCore.Components.Routing
-@using PutDoc.Shared
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link href="/site.css" rel="stylesheet" />
+    @* <link rel="icon" type="image/png" href="favicon.png" /> *@
+    <HeadOutlet />
+</head>
+<body>
+
 <Router AppAssembly="@typeof(App).Assembly">
     <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Shared.MainLayout)" />
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(PutDoc.Shared.MainLayout)" />
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>
         <PageTitle>Not found</PageTitle>
-        <LayoutView Layout="@typeof(Shared.MainLayout)">
+        <LayoutView Layout="@typeof(PutDoc.Shared.MainLayout)">
             <p role="alert">Sorry, there's nothing at this address.</p>
         </LayoutView>
     </NotFound>
 </Router>
 
-<HeadOutlet />   @* enables <HeadContent> in layouts/pages *@
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+<script src="/putdoc.js"></script>
+<script src="/_framework/blazor.web.js"  autostart="false"></script>
+
+</body>
+</html>
+
+@using PutDoc.Services
+@using PutDoc
+@using Microsoft.AspNetCore.Components.Routing

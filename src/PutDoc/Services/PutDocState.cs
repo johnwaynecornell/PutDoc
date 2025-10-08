@@ -1,20 +1,54 @@
 // PutDoc.Services/PutDocState.cs
 // PutDoc.Services/PutDocState.cs
+
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Microsoft.JSInterop;
+
 namespace PutDoc.Services;
 
 public class PutDocState
 {
-    public PutDocFile Doc { get; private set; } = new();
+    public PutDocFile Doc { get; private set; } = new();  // in-memory content
+    public DocMeta? Meta { get; private set; }            // catalog entry (id, name, version, modified)
+
+    public Guid CurrentDocId => Meta?.Id ?? Guid.Empty;
+    public int  DocVersion    => Meta?.Version ?? 0;       // for CAS
+    public string DocName     => Meta?.Name ?? "Untitled";
+
+    
+    
     public Guid? SelectedPageId { get; set; }
     public Guid? SelectedSnippetId { get; set; }
 
     public string CurrentUserId { get; set; } = new Guid().ToString();
     
-    readonly IPutDocStore _store;
+    //readonly IPutDocStore _store;
     readonly IAngleSoftFilter _filter;
+    private readonly IDocCatalogService _catalog;
+    private readonly IJSRuntime _js; // if you need it for RO attribute
+
+    public PutDocState(IDocCatalogService catalog, IAngleSoftFilter filter, IJSRuntime js)
+    {
+        _catalog = catalog;
+        _filter = filter;
+        _js = js;
+    }
 
     public bool IsReadOnly { get; private set; }
-    public void SetReadOnly(bool ro) { if (IsReadOnly != ro) { IsReadOnly = ro; Changed?.Invoke();} }
+
+    public void SetReadOnly(bool ro)
+    {
+        if (IsReadOnly != ro)
+        {
+            IsReadOnly = ro;
+            _ = _js.InvokeVoidAsync(
+                "document.documentElement.setAttribute", "data-pd-readonly", ro ? "true" : "false");
+            IsReadOnly = ro; Changed?.Invoke();
+        } 
+        
+    }
     
     // NEW: change event
     public event Action? Changed;
@@ -35,13 +69,8 @@ public class PutDocState
         SelectedSnippetId = CurrentPage()?.Snippets.FirstOrDefault()?.Id;
         Notify();
     }
-
-    public PutDocState(IPutDocStore store, IAngleSoftFilter filter)
-    {
-        _store = store;
-        _filter = filter;
-    }
-
+    
+    /*
     public async Task LoadAsync()
     {
         Doc = await _store.LoadAsync();
@@ -55,14 +84,77 @@ public class PutDocState
         SelectedSnippetId ??= CurrentPage()?.Snippets.FirstOrDefault()?.Id;
         Notify();
     }
+    */
+    public static Stream ConvertStringToStream(string inputString, Encoding encoding = null)
+    {
+        // Use UTF8 encoding by default if no encoding is specified
+        encoding ??= Encoding.UTF8; 
+
+        // Convert the string to a byte array using the specified encoding
+        byte[] byteArray = encoding.GetBytes(inputString);
+
+        // Create a MemoryStream from the byte array
+        MemoryStream memoryStream = new MemoryStream(byteArray);
+
+        return memoryStream;
+    }
+    public async Task<Guid> LoadDefaultAsync()
+    {
+        var id = await _catalog.EnsureDefaultAsync("Untitled");
+        await LoadAsync(id);
+        return id;
+    }
+    public async Task LoadAsync(Guid id)
+    {
+        var meta = await _catalog.GetAsync(id) ?? throw new FileNotFoundException($"Doc {id} not found");
+        var payload = await _catalog.LoadDocumentAsync(id) ?? ("{}", meta.Version);
+
+        // parse payload.json -> PutDocFile
+        
+        JsonSerializerOptions _json = new()
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
+        var fs = ConvertStringToStream(payload.json);
+        Doc = await JsonSerializer.DeserializeAsync<PutDocFile>(fs, _json);
+        
+        foreach (var p in Doc.Pages.Values)
+            for (int i = 0; i < p.Snippets.Count; i++)
+                p.Snippets[i].Html = await HtmlPuid.EnsurePuidsAsync(p.Snippets[i].Html ?? "");
+
+        SelectedPageId ??= Doc.Pages.Keys.FirstOrDefault();
+        SelectedSnippetId ??= CurrentPage()?.Snippets.FirstOrDefault()?.Id;
+
+        Meta = meta with { Version = payload.version };
+        Changed?.Invoke();
+    }
+
+// Call this from wherever you persist the whole document
+    public async Task SaveWholeDocumentAsync()
+    {
+        if (IsReadOnly) return;
+
+        var id = CurrentDocId;
+        if (id == Guid.Empty) throw new InvalidOperationException("No current document");
+
+        var json = JsonSerializer.Serialize(Doc); // your existing serializer
+        var expected = DocVersion;           // CAS
+
+        await _catalog.SaveDocumentAsync(id, json, expectedVersion: expected);
+
+        // reflect bump locally
+        Meta = Meta! with { Version = expected + 1, Modified = DateTimeOffset.UtcNow };
+        Changed?.Invoke();
+    }
 
     public Page? CurrentPage() => SelectedPageId is Guid id && Doc.Pages.TryGetValue(id, out var p) ? p : null;
     public Snippet? CurrentSnippet() => CurrentPage()?.Snippets.FirstOrDefault(s => s.Id == SelectedSnippetId);
 
     public async Task SaveAsync()
     {
-        await _store.SaveAsync(Doc);
-        Notify();
+        await SaveWholeDocumentAsync();
     }
     
     public long ContentVersion { get; private set; }
@@ -214,7 +306,7 @@ public class PutDocState
         return collection.Id;
     }
 
-// Create a new Page under a Collection
+    // Create a new Page under a Collection
     public async Task<Guid> CreatePage(Guid collectionId, string title = "New Page")
     {
         var page = new Page { Title = title, Snippets = new() { new Snippet() } };

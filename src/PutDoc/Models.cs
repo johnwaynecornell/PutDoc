@@ -1,4 +1,10 @@
-using System.Text.Json.Serialization;
+public record DocMeta
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "Untitled";
+    public DateTimeOffset Modified { get; set; } = DateTimeOffset.UtcNow;
+    public int Version { get; set; } = 0; // increments on each save
+}
 
 public record PutDocFile
 {

@@ -1,0 +1,19 @@
+@page "/"
+@rendermode RenderMode.InteractiveServer
+@inject NavigationManager Nav
+
+<h1>PutDoc</h1>
+<div>...Loading...</div>
+
+@code {
+    private bool _hasNavigated = false;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender && !_hasNavigated)
+        {
+            _hasNavigated = true;
+            Nav.NavigateTo("/doc/", replace: true);
+        }
+    }
+}
