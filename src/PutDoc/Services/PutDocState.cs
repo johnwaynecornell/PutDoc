@@ -16,8 +16,6 @@ public class PutDocState
     public Guid CurrentDocId => Meta?.Id ?? Guid.Empty;
     public int  DocVersion    => Meta?.Version ?? 0;       // for CAS
     public string DocName     => Meta?.Name ?? "Untitled";
-
-    
     
     public Guid? SelectedPageId { get; set; }
     public Guid? SelectedSnippetId { get; set; }
@@ -54,6 +52,19 @@ public class PutDocState
     public event Action? Changed;
     public void Notify() => Changed?.Invoke();
 
+    public async Task<bool> RenameAsync(string newName)
+    {
+        if (Meta is null) return false;
+        var ok = await _catalog.RenameAsync(Meta.Id, newName);
+        if (ok)
+        {
+            Meta = Meta with { Name = newName, Modified = DateTimeOffset.UtcNow };
+            Changed?.Invoke();
+        }
+        return ok;
+    }
+
+    
     // NEW: select snippet + notify others to re-render
     public void SelectSnippet(Guid? id)
     {

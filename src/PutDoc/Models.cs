@@ -8,7 +8,6 @@ public record DocMeta
 
 public record PutDocFile
 {
-    public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; set; } = "PutDoc";
     public Guid RootCollectionId { get; set; }
     public Dictionary<Guid, Collection> Collections { get; set; } = new();

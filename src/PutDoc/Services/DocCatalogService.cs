@@ -18,6 +18,13 @@ public interface IDocCatalogService
     Task SaveDocumentAsync(Guid id, string json, int? expectedVersion = null, CancellationToken ct = default);
 
     Task<Guid> EnsureDefaultAsync(string defaultName = "Untitled", CancellationToken ct = default);
+
+    Task<(string FileName, byte[] Bytes, string ContentType)> ExportRawJsonAsync(Guid id,
+        CancellationToken ct = default);
+
+    Task<(string FileName, byte[] Bytes, string ContentType)> ExportPackageAsync(Guid id,
+        CancellationToken ct = default);
+    
 }
 
 public sealed class DocCatalogService : IDocCatalogService
@@ -245,4 +252,37 @@ public sealed class DocCatalogService : IDocCatalogService
             File.Move(tmp, path, overwrite: true);
         }
     }
+    
+    // Services/DocCatalogService.Export.cs  (or inside the same class)
+
+    public async Task<(string FileName, byte[] Bytes, string ContentType)> ExportRawJsonAsync(Guid id, CancellationToken ct = default)
+    {
+        var meta = await GetAsync(id, ct) ?? throw new FileNotFoundException($"Doc {id} not found");
+        var (json, _) = await LoadDocumentAsync(id, ct) ?? ("{}", meta.Version);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        var name = SanitizeFileName(meta.Name);
+        return ($"{name}.putdoc.json", bytes, "application/json; charset=utf-8");
+    }
+
+    public async Task<(string FileName, byte[] Bytes, string ContentType)> ExportPackageAsync(Guid id, CancellationToken ct = default)
+    {
+        var meta = await GetAsync(id, ct) ?? throw new FileNotFoundException($"Doc {id} not found");
+        var (json, ver) = await LoadDocumentAsync(id, ct) ?? ("{}", meta.Version);
+        var pkg = new
+        {
+            meta = new { meta.Id, meta.Name, Version = ver, meta.Modified },
+            content = JsonDocument.Parse(json).RootElement
+        };
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(pkg, new JsonSerializerOptions { WriteIndented = true });
+        var name = SanitizeFileName(meta.Name);
+        return ($"{name}.putdoc.pkg.json", bytes, "application/json; charset=utf-8");
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var bad = Path.GetInvalidFileNameChars();
+        var safe = new string(name.Select(c => bad.Contains(c) ? '_' : c).ToArray());
+        return string.IsNullOrWhiteSpace(safe) ? "Document" : safe.Trim();
+    }
+
 }

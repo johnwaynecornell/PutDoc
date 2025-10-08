@@ -357,7 +357,7 @@
     
     private void OnInvalidated(Guid docId, string actorSessionId, bool structural, int newRev)
     {
-        if (State.Doc?.Id != docId) return;
+        if (State.CurrentDocId != docId) return;
         if (!structural) return;                 // only hard-stop on structural
         if (actorSessionId == _sessionId) return; // ignore my own change
         _staleStructural = true;

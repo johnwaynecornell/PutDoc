@@ -40,7 +40,7 @@
 
     private void WritersOnWriterChanged(Guid docId, WriterInfo? writerInfo)
     {
-        if (State.Doc?.Id != docId) return;
+        if (State.CurrentDocId != docId) return;
 
         var isMe = writerInfo is not null && writerInfo.SessionId == _sessionId;
         State.SetReadOnly(!isMe);
@@ -60,7 +60,7 @@
     [JSInvokable]
     public async Task<object> AcquireDocWriter(bool force)
     {
-        var docId = State.Doc?.Id ?? Guid.Empty;
+        var docId = State.CurrentDocId;
         if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
 
         var (res, prev) = Writers.TryBecomeWriter(docId, _userId, _sessionId, force);
@@ -82,7 +82,7 @@
     [JSInvokable]
     public object ReleaseDocWriter()
     {
-        var docId = State.Doc?.Id ?? Guid.Empty;
+        var docId = State.CurrentDocId;
         if (docId != Guid.Empty) Writers.Release(docId, _sessionId);
         _isWriter = false;
         State.SetReadOnly(true);
@@ -134,7 +134,7 @@
     public object AcquireForEdit(string kind /* "snippet"|"fragment-inner"|"fragment-outer" */, string puid, string snippetIdStr, bool force=false)
     {
         if (!Guid.TryParse(snippetIdStr, out var snippetId)) return new { status = "error", message = "bad snippetId" };
-        var docId = State.Doc?.Id ?? Guid.Empty;
+        var docId = State.CurrentDocId;
         if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
 
         LockKey key = kind.StartsWith("fragment", StringComparison.OrdinalIgnoreCase)
@@ -226,7 +226,7 @@
             var structural = action is "clone" or "delete" or "up" or "down" or "edit-outer";
             if (structural && State.Doc is { } doc)
             {
-                Invalidations.Bump(doc.Id, _sessionId, structural: true);
+                Invalidations.Bump(State.CurrentDocId, _sessionId, structural: true);
             }
             return new { status = "ok" };
         }

@@ -55,4 +55,16 @@ app.UseAntiforgery();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
+app.MapGet("/api/docs/{id:guid}/export", async (Guid id, IDocCatalogService catalog) =>
+{
+    var (fileName, bytes, contentType) = await catalog.ExportRawJsonAsync(id);
+    return Results.File(bytes, contentType, fileName);
+});
+
+app.MapGet("/api/docs/{id:guid}/exportpkg", async (Guid id, IDocCatalogService catalog) =>
+{
+    var (fileName, bytes, contentType) = await catalog.ExportPackageAsync(id);
+    return Results.File(bytes, contentType, fileName);
+});
+
 app.Run();

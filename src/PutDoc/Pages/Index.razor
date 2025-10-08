@@ -22,6 +22,24 @@
     else
     {
         <div class="top-row" style="display: inline-flex"> <h1>PutDoc</h1> 
+            <a class="brand" href="/docs" title="PutDoc Library">
+                <svg class="logo" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="1" y="1" width="22" height="22" rx="6" ry="6" fill="#22324a"/>
+                    <path d="M7 17V6h6a4 4 0 1 1 0 8h-2v3H7zm4-7h2a2 2 0 1 0 0-4h-2v4z" fill="#8ED4B5"/>
+                    <path d="M16 3l5 5h-5z" fill="#CFEADF" opacity=".95"/>
+                </svg>
+                <span class="app-title">PutDoc</span>
+            </a>
+
+            <nav class="nav">
+                <a class="nav-link" href="/docs">Library</a>
+                @if (State.Meta is not null)
+                {
+                    <span class="sep" aria-hidden="true"></span>
+                    <a class="nav-link" href="@($"/doc/{State.Meta.Id}")" title="Current document">@State.DocName</a>
+                }
+            </nav>
+            
             @if (State.Doc is not null)
             {
                 <div style="position:sticky; top:0; z-index:1000; padding:.35rem .5rem;
@@ -74,7 +92,7 @@
     
     void OnWriterChanged(Guid docId, PutDoc.Services.WriterInfo? info)
     {
-        if (State.Doc?.Id != docId) return;
+        if (State.CurrentDocId != docId) return;
         // We rely on ToolbarHub to toggle State.IsReadOnly; this just forces a repaint.
         InvokeAsync(StateHasChanged);
     }
@@ -112,7 +130,7 @@
      {
          if (docId is Guid id)
          {
-             if (State.Doc?.Id != id)
+             if (State.CurrentDocId != id)
                 try { await State.LoadAsync(id); }
                 catch (Exception ex) { loadError = ex.Message; }
 

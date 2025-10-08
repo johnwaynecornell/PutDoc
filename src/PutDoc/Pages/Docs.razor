@@ -1,0 +1,154 @@
+@page "/docs"
+
+@using Microsoft.AspNetCore.Components.Forms
+@inject IDocCatalogService Catalog
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<h3 class="font-semibold mb-2">PutDoc Library</h3>
+
+<div class="catalog-actions" style="display:flex; gap:.5rem; align-items:center; margin-bottom:.5rem;">
+  <button type="button" class="btn primary" @onclick="NewDoc">New PutDoc</button>
+  <label class="btn" style="position:relative; overflow:hidden;">
+    Import…
+    <InputFile OnChange="ImportSelected" accept=".json,.txt,application/json" style="position:absolute; inset:0; opacity:0; cursor:pointer;" />
+  </label>
+</div>
+
+@if (_loading)
+{
+  <p>Loading…</p>
+}
+else if (!string.IsNullOrEmpty(_error))
+{
+  <div style="color:#b00; padding:.5rem; border:1px solid #e99; background:#fee;">@_error</div>
+}
+else if (_docs?.Count == 0)
+{
+  <p style="color:#555;">No documents yet.</p>
+}
+else
+{
+  <ul class="page-list" style="list-style:none; padding-left:0;">
+    @foreach (var d in _docs!)
+    {
+      <li class="page-item" style="margin:.25rem 0; padding:.35rem; border:1px solid #ddd; border-radius:.5rem;">
+        <div class="page-row" style="display:flex; gap:.5rem; align-items:center; justify-content:space-between;">
+          <div style="display:flex; gap:.5rem; align-items:baseline;">
+            <button class="page-link" @onclick="() => Open(d.Id)">@d.Name</button>
+            <span style="font-size:.8rem; color:#666;">• updated @d.Modified.ToLocalTime().ToString("g")</span>
+          </div>
+          <div style="display:flex; gap:.35rem;">
+            <button class="btn" @onclick="() => Rename(d)">Rename</button>
+            <button class="btn danger" @onclick="() => Delete(d)">Delete</button>
+            <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+            <a class="btn" href="@($"/api/docs/{d.Id}/export")">Export JSON</a>
+            <a class="btn" href="@($"/api/docs/{d.Id}/exportpkg")">Export Package</a>
+            <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+            <button class="btn" @onclick="() => Open(d.Id)">Open</button>
+          </div>
+        </div>
+      </li>
+    }
+  </ul>
+}
+
+@code {
+  private List<DocMeta>? _docs;
+  private bool _loading = true;
+  private string? _error;
+
+  protected override async Task OnInitializedAsync() => await Refresh();
+
+  private async Task Refresh()
+  {
+    _error = null;
+    _loading = true;
+    try { _docs = (await Catalog.ListAsync()).ToList(); }
+    catch (Exception ex) { _error = ex.Message; }
+    finally { _loading = false; }
+    StateHasChanged();
+  }
+
+  private async Task NewDoc()
+  {
+    try
+    {
+      var id = await Catalog.CreateAsync("Untitled");
+      Nav.NavigateTo($"/doc/{id}");
+    }
+    catch (Exception ex) { _error = ex.Message; }
+  }
+
+  private void Open(Guid id) => Nav.NavigateTo($"/doc/{id}");
+
+  private async Task Rename(DocMeta d)
+  {
+    var proposed = await JS.InvokeAsync<string?>("prompt", $"Rename “{d.Name}” to:", d.Name);
+    if (string.IsNullOrWhiteSpace(proposed) || proposed == d.Name) return;
+    await Catalog.RenameAsync(d.Id, proposed.Trim());
+    await Refresh();
+  }
+
+  private async Task Delete(DocMeta d)
+  {
+    var ok = await JS.InvokeAsync<bool>("confirm", $"Delete “{d.Name}”? This cannot be undone.");
+    if (!ok) return;
+    await Catalog.DeleteAsync(d.Id);
+    await Refresh();
+  }
+
+  private async Task ImportSelected(InputFileChangeEventArgs e)
+  {
+    var file = e.File;
+    if (file is null) return;
+
+    using var stream = file.OpenReadStream(long.MaxValue);
+    using var reader = new StreamReader(stream);
+    var text = await reader.ReadToEndAsync();
+
+    string name = Path.GetFileNameWithoutExtension(file.Name);
+    string contentJson = text;
+
+    // Accept both raw content JSON and "package" { meta, content }
+    try
+    {
+      using var doc = System.Text.Json.JsonDocument.Parse(text);
+      if (doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+          doc.RootElement.TryGetProperty("content", out var contentProp))
+      {
+        // Package: try to take name from meta
+        if (doc.RootElement.TryGetProperty("meta", out var metaProp) &&
+            metaProp.TryGetProperty("name", out var nameProp) &&
+            nameProp.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+          name = nameProp.GetString() ?? name;
+        }
+
+        // Extract raw JSON for content
+        contentJson = contentProp.GetRawText();
+      }
+    }
+    catch
+    {
+      // Not JSON or invalid – let CreateAsync fail if needed
+    }
+
+    // Let user tweak the name
+    var ask = await JS.InvokeAsync<string?>("prompt", "Name for imported document:", name);
+    name = string.IsNullOrWhiteSpace(ask) ? name : ask.Trim();
+
+    var id = await Catalog.CreateAsync(name, initialJson: contentJson);
+    Nav.NavigateTo($"/doc/{id}");
+  }
+}
+
+<style>
+  .page-link { background:none; border:0; text-decoration:underline; cursor:pointer; }
+  .page-link:hover { text-decoration:none; }
+  .btn { padding:.15rem .5rem; border:1px solid #ccc; border-radius:.375rem; background:#fff; cursor:pointer; }
+  .btn:hover { background:#f4f4f4; }
+  .btn.primary { border-color:#5b9; }
+  .btn.danger { border-color:#c77; }
+  .sep { border-left:1px solid #ddd; height:1.25rem; }
+</style>
