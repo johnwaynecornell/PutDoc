@@ -40,25 +40,29 @@
                 }
             </nav>
             
-            @if (State.Doc is not null)
-            {
-                <div style="position:sticky; top:0; z-index:1000; padding:.35rem .5rem;
-                background: #fffbe6; border-bottom:1px solid #e6db9e;
-                display:flex; gap:.5rem; align-items:center;">
-                    <span>
-                        @(State.IsReadOnly
-                            ? "Read-only in this window"
-                            : "You have write control")
+            <div class="status">
+                @if (State.Meta is not null)
+                {
+                    <span class="badge @(State.IsReadOnly ? "ro" : "rw")" title="Editing mode">
+                        @(State.IsReadOnly ? "Read-only" : "You’re the writer")
                     </span>
 
-                    <button class="btn" @onclick="TakeControl" disabled="@(!State.IsReadOnly)">
-                        Take control
-                    </button>
-                    <button class="btn" @onclick="ReleaseControl" disabled="@(State.IsReadOnly)">
-                        Release
-                    </button>
-                </div>
-            }
+                    <button class="btn" @onclick="TakeControl" disabled="@(!State.IsReadOnly)">Take control</button>
+                    <button class="btn" @onclick="ReleaseControl" disabled="@(State.IsReadOnly)">Release</button>
+
+                    <span class="sep" aria-hidden="true"></span>
+
+                    <button class="btn" @onclick="ExportJson">Export</button>
+                    
+                    <form style="display:inline-flex; gap:.35rem;" @onsubmit="DoRename">
+                        <input @bind="_rename" @bind:event="oninput" placeholder="@State.DocName"
+                               style="border:1px solid #ccc; border-radius:.375rem; padding:.2rem .4rem;"/>
+                        <button class="btn" type="submit" disabled="@string.IsNullOrWhiteSpace(_rename)">Rename</button>
+                    </form>
+                }
+                
+                
+            </div>
         
         </div>
     
@@ -90,6 +94,15 @@
 
 @code {
     
+    private string _rename = "";
+    private async Task DoRename()
+    {
+        var name = string.IsNullOrWhiteSpace(_rename) ? State.DocName : _rename.Trim();
+        if (!string.Equals(name, State.DocName, StringComparison.Ordinal))
+            await State.RenameAsync(name);
+        _rename = "";
+    }
+    
     void OnWriterChanged(Guid docId, PutDoc.Services.WriterInfo? info)
     {
         if (State.CurrentDocId != docId) return;
@@ -112,6 +125,12 @@
         try { await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?..invokeMethodAsync('ReleaseDocWriter')"); }
         catch { /* noop */ }
     }
+    
+    void ExportJson()
+    {
+        if (State.Meta is null) return;
+        Nav.NavigateTo($"/api/docs/{State.Meta.Id}/export", forceLoad: true);
+    }
 
     public void Dispose()
     {
@@ -131,7 +150,12 @@
          if (docId is Guid id)
          {
              if (State.CurrentDocId != id)
-                try { await State.LoadAsync(id); }
+                 try
+                 {
+                     await State.LoadAsync(id);
+                     await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', false)");
+                     
+                 }
                 catch (Exception ex) { loadError = ex.Message; }
 
          }
@@ -180,6 +204,33 @@
   box-shadow: 0 0 0 3px rgba(90,124,255,.15);
   transition: box-shadow .15s ease, outline-color .15s ease;
 }
+</style>
+
+<style>
+    .app-header {
+        display:flex; align-items:center; justify-content:space-between;
+        gap:.75rem; padding:.5rem .65rem; background:#fff;
+        border:1px solid #224; border-radius:8px; margin-bottom:.5rem;
+        position:sticky; top:0; z-index:100;
+    }
+    .brand { display:flex; align-items:center; gap:.45rem; text-decoration:none; color:#223; }
+    .brand .logo { width:22px; height:22px; display:block; }
+    .app-title { font-weight:700; letter-spacing:.2px; }
+
+    .nav { display:flex; align-items:center; gap:.5rem; }
+    .nav-link { text-decoration:underline; color:#223; background:none; border:0; cursor:pointer; }
+    .nav-link:hover { text-decoration:none; }
+
+    .status { display:flex; align-items:center; gap:.35rem; }
+    .badge { font-size:.85rem; padding:.1rem .4rem; border-radius:.4rem; border:1px solid #bbb; }
+    .badge.rw { background:#e7fff5; border-color:#8ED4B5; }
+    .badge.ro { background:#fff7e0; border-color:#e2c26a; }
+
+    /*.sep { width:1px; height:1.25rem; background:#ddd; display:inline-block; }*/
+
+    .btn { padding:.15rem .5rem; border:1px solid #ccc; border-radius:.375rem; background:#fff; cursor:pointer; }
+    .btn:hover { background:#f4f4f4; }
+    .btn[disabled] { opacity:.55; cursor:not-allowed; }
 </style>
 
 <style>
