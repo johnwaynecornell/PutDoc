@@ -45,8 +45,22 @@ public class PutDocState
                 "document.documentElement.setAttribute", "data-pd-readonly", ro ? "true" : "false");
             IsReadOnly = ro; Changed?.Invoke();
         } 
-        
     }
+    
+    public bool IsDirty { get; private set; }
+public void MarkDirty()
+{
+        if (IsDirty) return;
+        IsDirty = true;
+        Changed?.Invoke();
+}
+public void ClearDirty()
+{
+        if (!IsDirty) return;
+        IsDirty = false;
+        Changed?.Invoke();
+}
+
     
     // NEW: change event
     public event Action? Changed;
@@ -157,6 +171,7 @@ public class PutDocState
 
         // reflect bump locally
         Meta = Meta! with { Version = expected + 1, Modified = DateTimeOffset.UtcNow };
+        ClearDirty();        
         Changed?.Invoke();
     }
 

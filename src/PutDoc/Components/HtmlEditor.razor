@@ -30,7 +30,12 @@
     <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("list")'>+ list</button>
     <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("p")'>+ paragraph</button>
     <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-</div>
+    @if (State.IsDirty)
+    {
+        <span title="Unsaved changes" style="width:.5rem;height:.5rem;border-radius:50%;
+        background:#e67; display:inline-block; margin-left:.3rem;"></span>
+    }
+    </div>
 
 <textarea @ref="_ta"
           disabled="@State.IsReadOnly"
@@ -164,6 +169,7 @@
         {
             if (editorText == value) return;
             editorText = value;
+            State.MarkDirty();
             if (State.IsReadOnly) return;    // block edits
 
             _editVersion++;
