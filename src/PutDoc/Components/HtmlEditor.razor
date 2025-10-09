@@ -37,6 +37,31 @@
     }
     </div>
 
+<!-- Tag inserter -->
+<!-- Tag inserter + taggify -->
+<form class="tag-inserter"
+      style="display:flex; gap:.35rem; align-items:center; margin-bottom:.35rem;"
+      @onsubmit="InsertTagFromUi" @onsubmit:preventDefault="true">
+
+    <input list="html-tag-suggestions"
+           class="tag-input"
+           placeholder='e.g., div  |  p class="note"  |  img src="" alt=""'
+           style="min-width:16rem; padding:.25rem .4rem; border:1px solid #ccc; border-radius:.375rem;"
+           @bind="_tagInput" @bind:event="oninput" />
+
+    <datalist id="html-tag-suggestions">
+        @foreach (var t in EffectiveTagOptions)
+        {
+            <option value="@t" />
+        }
+    </datalist>
+
+    <button type="submit" class="btn">Insert tag</button>
+    <button type="button" class="btn" @onclick="TaggifySelectionFromUi" title="Wrap current selection with tag">
+        Taggify
+    </button>
+</form>
+
 <textarea @ref="_ta"
           disabled="@State.IsReadOnly"
           class="w-full"
@@ -95,6 +120,7 @@
 </div>
 
 @code {
+
     // UI state
     private string editorText = "";
     private ElementReference _ta;
@@ -113,20 +139,28 @@
     // debounce timer (autosave)
     private System.Timers.Timer? _debounce;
     private const int DebounceMs = 600;
-    
+
     private bool _staleStructural;
     private string _sessionId = "";
 
 
     // status
-    private enum SaveState { Idle, Typing, Saving, Saved }
+    private enum SaveState
+    {
+        Idle,
+        Typing,
+        Saving,
+        Saved
+    }
+
     private SaveState _saveState = SaveState.Idle;
+
     private string _statusText => _saveState switch
     {
         SaveState.Typing => "Typing…",
         SaveState.Saving => "Saving…",
-        SaveState.Saved  => "Saved",
-        _                => ""
+        SaveState.Saved => "Saved",
+        _ => ""
     };
 
     // selection/sync
@@ -150,7 +184,7 @@
     private void OnStateChanged() =>
         _ = InvokeAsync(() => { return SyncFromStateAsync(force: false); });
 
-    
+
     private async Task ToggleScope()
     {
         _fragScope = (_fragScope == PutDocState.FragmentScope.Inner)
@@ -161,6 +195,158 @@
         await SyncFromStateAsync(force: true);
     }
 
+    // ---- Tag inserter state/props ----
+    [Parameter] public IEnumerable<string>? TagOptions { get; set; }
+
+    private static readonly string[] DefaultTagOptions = new[]
+    {
+        "div", "p", "h1", "h2", "h3",
+        "ul", "ol", "li",
+        "pre", "code", "span", "strong", "em",
+        "a href=\"\"",
+        "img src=\"\" alt=\"\"",
+        "table", "thead", "tbody", "tr", "th", "td",
+        "section", "article", "aside", "header", "footer",
+    };
+
+    private IEnumerable<string> EffectiveTagOptions =>
+        TagOptions is { } any && any.Any() ? TagOptions! : DefaultTagOptions;
+
+    private string _tagInput = "";
+
+// HTML void (self-closing) elements
+    private static readonly HashSet<string> SelfClosing = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+        "meta", "param", "source", "track", "wbr"
+    };
+
+    private async Task InsertTagFromUi()
+    {
+        var raw = (_tagInput ?? "").Trim();
+        if (string.IsNullOrEmpty(raw)) return;
+
+        var markup = BuildClosedMarkup(raw); // inserts a valid standalone snippet
+        await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, markup);
+
+        _tagInput = "";
+        _saveState = SaveState.Typing;
+        StartDebounce();
+    }
+
+    private async Task TaggifySelectionFromUi()
+    {
+        var raw = (_tagInput ?? "").Trim();
+        if (string.IsNullOrEmpty(raw)) return;
+
+        var (name, attrs, isVoid) = ParseTagSpec(raw);
+        if (string.IsNullOrEmpty(name)) return;
+
+        if (isVoid)
+        {
+            // void elements can’t wrap selection; insert standalone self-closing
+            var standalone = attrs.Length > 0 ? $"<{name} {attrs} />" : $"<{name} />";
+            await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, standalone);
+        }
+        else
+        {
+            var open = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
+            var close = $"</{name}>";
+            await JS.InvokeVoidAsync("putdocText.wrapSelection", _ta, open, close);
+        }
+
+        _saveState = SaveState.Typing;
+        StartDebounce();
+    }
+
+// ===== helpers reused from earlier =====
+
+// Build a properly closed snippet from user input (standalone insertion)
+    private static string BuildClosedMarkup(string raw)
+    {
+        var s = raw.Trim();
+        if (string.IsNullOrWhiteSpace(s)) return s;
+
+        if (s.StartsWith("</") || s.Contains("</")) return s; // already a pair or explicit end tag
+
+        if (s.StartsWith("<") && !s.EndsWith(">")) s += ">";
+
+        if (!s.StartsWith("<"))
+        {
+            var name = ExtractTagName(s.AsSpan());
+            var attrs = s.Length > name.Length ? s.Substring(name.Length).TrimStart() : "";
+
+            if (SelfClosing.Contains(name))
+                return attrs.Length > 0 ? $"<{name} {attrs} />" : $"<{name} />";
+
+            var open = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
+            return $"{open}</{name}>";
+        }
+
+        if (s.EndsWith("/>")) return s; // already self-closed
+
+        var nameFromOpen = ExtractTagName(s.AsSpan(1));
+        if (string.IsNullOrEmpty(nameFromOpen)) return s;
+
+        if (SelfClosing.Contains(nameFromOpen))
+        {
+            if (!s.EndsWith("/>"))
+            {
+                s = s.TrimEnd('>');
+                s += " />";
+            }
+
+            return s;
+        }
+
+        return s + $"</{nameFromOpen}>";
+    }
+
+// Parse "tag [attrs]" from raw or "<tag [attrs]>" or "<tag [attrs]/>"
+    private static (string name, string attrs, bool isVoid) ParseTagSpec(string raw)
+    {
+        var s = raw.Trim();
+
+        // If user typed an end tag: use its name for wrapping
+        if (s.StartsWith("</"))
+        {
+            var n = ExtractTagName(s.AsSpan(2));
+            return (n, "", SelfClosing.Contains(n));
+        }
+
+        // Strip surrounding <>
+        if (s.StartsWith("<")) s = s.TrimStart('<');
+        if (s.EndsWith(">")) s = s.TrimEnd('>');
+        if (s.EndsWith("/")) s = s.TrimEnd('/').TrimEnd(); // remove '/>' tail
+
+        var name = ExtractTagName(s.AsSpan());
+        var attrs = s.Length > name.Length ? s.Substring(name.Length).TrimStart() : "";
+
+        return (name, attrs, SelfClosing.Contains(name));
+    }
+
+// Extract a tag name from "div ..." or "<div ...>"
+    private static string ExtractTagName(ReadOnlySpan<char> span)
+    {
+        int i = 0;
+        while (i < span.Length && (span[i] == '<' || span[i] == '/' || char.IsWhiteSpace(span[i]))) i++;
+        int start = i;
+        while (i < span.Length)
+        {
+            char c = span[i];
+            if (char.IsLetterOrDigit(c) || c == ':' || c == '-')
+            {
+                i++;
+                continue;
+            }
+
+            break;
+        }
+
+        return (i > start) ? span.Slice(start, i - start).ToString() : "";
+    }
+
+
     // ---- INPUT ----
     private string EditorText
     {
@@ -170,7 +356,7 @@
             if (editorText == value) return;
             editorText = value;
             State.MarkDirty();
-            if (State.IsReadOnly) return;    // block edits
+            if (State.IsReadOnly) return; // block edits
 
             _editVersion++;
             _inputSerial++;
@@ -235,6 +421,7 @@
                 _saveState = SaveState.Idle;
                 StateHasChanged();
             }
+
             return;
         }
 
@@ -253,7 +440,7 @@
             _lastSeenContentVersion = State.ContentVersion;
             _saveState = SaveState.Idle;
         }
-        
+
         StateHasChanged();
     }
 
@@ -339,12 +526,12 @@
     {
         var tpl = kind switch
         {
-            "card"   => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
-            "brick"  => "<div class=\"slf-brick\"><h3>BRICK</h3><p><b>Definition</b>: <span>...</span></p><div><b>Example</b>: <div>...</div></div></div>",
+            "card" => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
+            "brick" => "<div class=\"slf-brick\"><h3>BRICK</h3><p><b>Definition</b>: <span>...</span></p><div><b>Example</b>: <div>...</div></div></div>",
             "prompt" => "<div class=\"prompt_area\"><h3>Prompt</h3><p>...</p></div>",
-            "table"  => "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
-            "list"   => "<ul><li>Item 1</li><li>Item 2</li></ul>",
-            _        => "<p>...</p>"
+            "table" => "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
+            "list" => "<ul><li>Item 1</li><li>Item 2</li></ul>",
+            _ => "<p>...</p>"
         };
 
         await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, tpl);
@@ -357,28 +544,35 @@
         State.CancelSelectionEdit();
         _ = JS.InvokeVoidAsync("putdocPresence.releaseCurrent");
     }
-    
+
     private async Task CopyBuffer() =>
         await JS.InvokeVoidAsync("navigator.clipboard.writeText", editorText ?? "");
-    
+
     private void OnInvalidated(Guid docId, string actorSessionId, bool structural, int newRev)
     {
         if (State.CurrentDocId != docId) return;
-        if (!structural) return;                 // only hard-stop on structural
+        if (!structural) return; // only hard-stop on structural
         if (actorSessionId == _sessionId) return; // ignore my own change
         _staleStructural = true;
         InvokeAsync(StateHasChanged);
     }
-    
+
     public void Dispose()
     {
         _disposed = true;
         State.Changed -= OnStateChanged;
         Invalidations.Invalidated -= OnInvalidated;
-        
+
         if (_debounce is not null)
         {
-            try { _debounce.Stop(); } catch { }
+            try
+            {
+                _debounce.Stop();
+            }
+            catch
+            {
+            }
+
             _debounce.Dispose();
             _debounce = null;
         }
@@ -388,4 +582,5 @@
     }
 
     public record TextSelection(int Start, int End);
+
 }

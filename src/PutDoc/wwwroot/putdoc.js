@@ -283,6 +283,24 @@
         ta.focus();
     };
 
+    window.putdocText.wrapSelection = (ta, before, after) => {
+        const s = ta.selectionStart, e = ta.selectionEnd;
+        const val = ta.value;
+        const selected = val.slice(s, e);
+
+        ta.value = val.slice(0, s) + before + selected + after + val.slice(e);
+
+        // keep selection on the original content
+        const newStart = s + before.length;
+        const newEnd   = newStart + selected.length;
+        ta.selectionStart = newStart;
+        ta.selectionEnd   = newEnd;
+
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.focus();
+    };
+
+
     window.putdocEnh = (function () {
         let __hub = null; // DotNetObjectReference set by ToolbarHub once
         let __currentOpen = null;
