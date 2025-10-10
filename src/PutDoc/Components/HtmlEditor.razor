@@ -1,7 +1,5 @@
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
-@inject PutDoc.Services.DocInvalidationService Invalidations
-@inject NavigationManager Nav
 @inject IJSRuntime JS
 @using PutDoc.Services
 @implements IDisposable
@@ -22,128 +20,210 @@
 }
 
 <div class="palette" style="display:flex; gap:.35rem; flex-wrap:wrap; margin-bottom:.35rem;">
-    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("card")'>+ slf-card</button>
-    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
-    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("card")'>+ slf-card</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
     <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("table")'>+ table</button>
-    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("list")'>+ list</button>
-    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick='() => InsertTpl("p")'>+ paragraph</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("table")'>+ table</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("list")'>+ list</button>
+    <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
     <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-    @if (State.IsDirty)
-    {
-        <span title="Unsaved changes" style="width:.5rem;height:.5rem;border-radius:50%;
-        background:#e67; display:inline-block; margin-left:.3rem;"></span>
-    }
-    </div>
+</div>
 
-<!-- Tag inserter -->
 <!-- Tag inserter + taggify -->
 <form class="tag-inserter"
       style="display:flex; gap:.35rem; align-items:center; margin-bottom:.35rem;"
       @onsubmit="InsertTagFromUi" @onsubmit:preventDefault="true">
 
-    <input list="html-tag-suggestions"
-           class="tag-input"
-           placeholder='e.g., div  |  p class="note"  |  img src="" alt=""'
-           style="min-width:16rem; padding:.25rem .4rem; border:1px solid #ccc; border-radius:.375rem;"
-           @bind="_tagInput" @bind:event="oninput" />
+  <input list="html-tag-suggestions"
+         class="tag-input"
+         placeholder='e.g., div  |  p class="note"  |  img src="" alt=""'
+         style="min-width:16rem; padding:.25rem .4rem; border:1px solid #ccc; border-radius:.375rem;"
+         @bind="_tagInput" @bind:event="oninput" />
 
-    <datalist id="html-tag-suggestions">
-        @foreach (var t in EffectiveTagOptions)
-        {
-            <option value="@t" />
-        }
-    </datalist>
+  <datalist id="html-tag-suggestions">
+    @foreach (var t in EffectiveTagOptions)
+    {
+        <option value="@t" />
+    }
+  </datalist>
 
-    <button type="submit" class="btn">Insert tag</button>
-    <button type="button" class="btn" @onclick="TaggifySelectionFromUi" title="Wrap current selection with tag">
-        Taggify
-    </button>
+  <button type="submit" class="btn">Insert tag</button>
+  <button type="button" class="btn" @onclick="TaggifySelectionFromUi" title="Wrap current selection with tag">Taggify</button>
 </form>
 
-<button type="button" class="btn" @onclick="ToggleFreeze">
+<!-- Save/Undo/Redo/Freeze row -->
+<div style="display:flex; gap:.35rem; align-items:center; margin-bottom:.35rem;">
+  <button type="button" class="btn" @onclick="SaveNow" disabled="@(_isFrozen || State.IsReadOnly)">Save now</button>
+  <button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">Undo</button>
+  <button type="button" class="btn" @onclick="Redo" disabled="@(!_canRedo)">Redo</button>
+  <button type="button" class="btn" @onclick="ToggleFreeze">
     @(_isFrozen ? "Unfreeze (enable save)" : "Freeze (pause save)")
-</button>
+  </button>
 
-<button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">
-    Undo
-</button>
-
-@if (_isFrozen)
-{
+  @if (_isFrozen)
+  {
     <span style="font-size:.85rem; color:#b56;">Frozen — changes won’t be saved.</span>
-}
+  }
 
+  @* your little dirty-dot lives nicely here *@
+  @if (State.IsDirty)
+  {
+    <span title="Unsaved changes" style="width:.5rem;height:.5rem;border-radius:50%;
+          background:#e67; display:inline-block; margin-left:.3rem;"></span>
+  }
+</div>
 
 <textarea @ref="_ta"
-          disabled="@State.IsReadOnly"
           class="w-full"
           style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
           @bind="EditorText"
           @bind:event="oninput">
 </textarea>
 
-@if (State.IsReadOnly)
-{
-    <div class="menu-popover" style="margin-top:.5rem">
-        This window is <strong>read-only</strong>. 
-        Open the writer controls to take control, or refresh to see latest.
-    </div>
-}
-
-@if (_staleStructural)
-{
-    <div style="
-        position:relative;">
-        <div style="
-            position:absolute; inset:0; 
-            background: rgba(255,255,200,0.9);
-            border:1px solid #cc9; border-radius:.5rem; 
-            display:flex; flex-direction:column; gap:.5rem;
-            padding:.75rem; z-index: 50;">
-            <div style="font-weight:700;">Changes were made in another window</div>
-            <div style="font-size:.9rem;">
-                To avoid conflicts, refresh this editor before continuing.
-            </div>
-            <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
-                <button class="btn" @onclick="CopyBuffer">Copy current text</button>
-                <button class="btn primary" @onclick="@(() => Nav.NavigateTo(Nav.Uri, forceLoad: true))">
-                    Refresh page
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
-
 @code {
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async void OnAfterRender(bool firstRender)
     {
         if (firstRender)
         {
             await JS.InvokeVoidAsync("putdocText.bindTabIndent", _ta);
             await JS.InvokeVoidAsync("putdocText.initEditor", _ta);
-            _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId"); // per-window
-            
-            await JS.InvokeVoidAsync("eval", @"
-  (function(){
-    if (window.__pdUndoKeyBound) return; window.__pdUndoKeyBound = true;
-    document.addEventListener('keydown', function(e){
-      if (e.ctrlKey && e.key === 'z') {
-        const el = document.activeElement;
-        if (el && el.tagName === 'TEXTAREA') {
-          e.preventDefault();
-          DotNet.invokeMethodAsync('YourAssemblyName', 'InvokeEditorUndo'); // requires a static invoker
-        }
-      }
-    });
-  })();
-");
-
         }
     }
-    
+}
+
+<div style="font-size:.8rem; color:#666; margin-top:.5rem;">
+    @_statusText • Saved through AngleSoft filter.
+</div>
+
+@code {
+    // ===== UI state & editor buffer =====
+    private string editorText = "";
+    private ElementReference _ta;
+    private bool _isFragmentMode;
+    private Guid? _lastSnippetId;
+
+    // typing serials
+    private long _inputSerial = 0;
+    private long _inputSerialAtSave = 0;
+
+    // save control
+    private bool _isSaving = false;
+    private bool _pendingSave = false;
+    private string? _savingSnapshot;
+
+    // debounce timer
+    private System.Timers.Timer? _debounce;
+    private const int DebounceMs = 600;
+
+    // status
+    private enum SaveState { Idle, Typing, Saving, Saved }
+    private SaveState _saveState = SaveState.Idle;
+    private string _statusText => _saveState switch
+    {
+        SaveState.Typing => "Typing…",
+        SaveState.Saving => "Saving…",
+        SaveState.Saved  => "Saved",
+        _                => ""
+    };
+
+    // selection/sync
+    private long _lastSeenContentVersion;
+    private PutDocState.FragmentScope _fragScope = PutDocState.FragmentScope.Inner;
+
+    // caret/saves/epochs
+    private long _saveEpoch = 0;
+    private long _editVersion = 0;
+
+    // ===== Freeze =====
+    private bool _isFrozen = false;
+
+    // ===== Undo/Redo =====
+    private sealed record UndoEntry(string Text, int SelStart, int SelEnd);
+    private readonly Stack<UndoEntry> _undo = new();
+    private readonly Stack<UndoEntry> _redo = new();
+    private bool _canUndo => _undo.Count > 0;
+    private bool _canRedo => _redo.Count > 0;
+    private const int MaxUndo = 100;
+
+    // “commit” baseline
+    private string _lastCheckpointText = "";
+
+    // context key so we don’t mix undos across snippet/fragment
+    private string _contextKey = "";
+
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+        _ = SyncFromStateAsync(force: true);
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(() => SyncFromStateAsync(force: false));
+
+    private async Task ToggleScope()
+    {
+        _fragScope = (_fragScope == PutDocState.FragmentScope.Inner)
+            ? PutDocState.FragmentScope.Outer
+            : PutDocState.FragmentScope.Inner;
+
+        await State.SetSelectionScope(_fragScope);  // updates Selection.Html
+        await SyncFromStateAsync(force: true);      // refresh editorText
+    }
+
+    // ---- INPUT ----
+    private string EditorText
+    {
+        get => editorText;
+        set
+        {
+            if (editorText == value) return;
+            editorText = value;
+            _editVersion++;
+            _inputSerial++;
+            _saveState = SaveState.Typing;
+
+            State.MarkDirty();
+            StartDebounce();
+
+            // any new user edit invalidates redo
+            _redo.Clear();
+        }
+    }
+
+    private void StartDebounce()
+    {
+        _debounce?.Stop();
+        _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
+        _debounce.Elapsed -= DebouncedSave;
+        _debounce.Elapsed += DebouncedSave;
+        _debounce.Start();
+    }
+
+    private async void DebouncedSave(object? sender, System.Timers.ElapsedEventArgs e)
+    {
+        await InvokeAsync(async () =>
+        {
+            await CreateUndoCheckpointAsync();
+
+            if (_isFrozen) return;
+
+            if (_isSaving)
+            {
+                _pendingSave = true;
+                return;
+            }
+
+            await SaveAsync();
+
+            if (_pendingSave)
+            {
+                _pendingSave = false;
+                await SaveAsync();
+            }
+        });
+    }
+
+    // ---- STATE SYNC ----
     private string ComputeContextKey()
     {
         if (State.Selection.IsActive)
@@ -159,363 +239,17 @@
         {
             _contextKey = key;
             _undo.Clear();
-            _lastCommittedText = editorText;  // treat current buffer as baseline
-        }
-    }
-
-    
-    private async Task MaybePushUndoBaselineAsync()
-    {
-        EnsureContext();
-
-        // Only push when buffer changed relative to last committed text
-        if (!string.Equals(editorText, _lastCommittedText, StringComparison.Ordinal))
-        {
-            // Use current caret for a nice restore point
-            var caret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-            _undo.Push(new UndoEntry(_lastCommittedText, caret.Start, caret.End));
-            StateHasChanged();
-        }
-    }
-
-}
-
-<div style="font-size:.8rem; color:#666; margin-top:.5rem;">
-    @_statusText • Saved through AngleSoft filter.
-</div>
-
-@code {
-
-    // UI state
-    private string editorText = "";
-    private ElementReference _ta;
-    private bool _isFragmentMode;
-    private Guid? _lastSnippetId;
-
-    // typing serials
-    private long _inputSerial = 0;
-    private long _inputSerialAtSave = 0;
-    
-    // --- Freeze mode ---
-    private bool _isFrozen = false;
-
-// --- Undo: stack of committed snapshots (text + caret) per context ---
-    private sealed record UndoEntry(string Text, int SelStart, int SelEnd);
-    private readonly Stack<UndoEntry> _undo = new();
-    private bool _canUndo => _undo.Count > 0;
-
-// Track the “context” (snippet vs fragment) so we don’t mix undos across items
-    private string _contextKey = "";         // e.g., "frag:<snippetId>|<puid>|Outer" or "snip:<snippetId>"
-    private string _lastCommittedText = "";  // the last version *after* a successful save
-
-
-    // save control
-    private bool _isSaving = false;
-    private bool _pendingSave = false;
-    private string? _savingSnapshot;
-
-    // debounce timer (autosave)
-    private System.Timers.Timer? _debounce;
-    private const int DebounceMs = 600;
-
-    private bool _staleStructural;
-    private string _sessionId = "";
-
-
-    // status
-    private enum SaveState
-    {
-        Idle,
-        Typing,
-        Saving,
-        Saved
-    }
-
-    private SaveState _saveState = SaveState.Idle;
-
-    private string _statusText => _saveState switch
-    {
-        SaveState.Typing => "Typing…",
-        SaveState.Saving => "Saving…",
-        SaveState.Saved => "Saved",
-        _ => ""
-    };
-
-    // selection/sync
-    private long _lastSeenContentVersion;
-    private PutDocState.FragmentScope _fragScope = PutDocState.FragmentScope.Inner;
-
-    // caret/epoch guards
-    private long _saveEpoch = 0;
-    private long _editVersion = 0;
-
-    // lifecycle guard
-    private bool _disposed;
-
-    protected override void OnInitialized()
-    {
-        State.Changed += OnStateChanged;
-        Invalidations.Invalidated += OnInvalidated;
-        _ = SyncFromStateAsync(force: true);
-    }
-
-    private void OnStateChanged() =>
-        _ = InvokeAsync(() => { return SyncFromStateAsync(force: false); });
-
-    private void ToggleFreeze()
-    {
-        _isFrozen = !_isFrozen;
-        if (!_isFrozen) StartDebounce();
-        StateHasChanged();
-    }
-
-    private async Task Undo()
-    {
-        if (_undo.Count == 0) return;
-
-        var entry = _undo.Pop();
-
-        // Replace editor buffer
-        editorText = entry.Text;
-        _lastCommittedText = editorText;
-        _saveState = SaveState.Typing; // shows as locally changed
-        State.MarkDirty();
-        StateHasChanged();
-
-        // Put caret back where it was for that snapshot
-        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
-
-        StartDebounce();
-    }
-
-
-    private async Task ToggleScope()
-    {
-        _fragScope = (_fragScope == PutDocState.FragmentScope.Inner)
-            ? PutDocState.FragmentScope.Outer
-            : PutDocState.FragmentScope.Inner;
-
-        await State.SetSelectionScope(_fragScope);
-        await SyncFromStateAsync(force: true);
-    }
-
-    // ---- Tag inserter state/props ----
-    [Parameter] public IEnumerable<string>? TagOptions { get; set; }
-
-    private static readonly string[] DefaultTagOptions = new[]
-    {
-        "div", "p", "h1", "h2", "h3",
-        "ul", "ol", "li",
-        "pre", "code", "span", "strong", "em",
-        "a href=\"\"",
-        "img src=\"\" alt=\"\"",
-        "table", "thead", "tbody", "tr", "th", "td",
-        "section", "article", "aside", "header", "footer",
-    };
-
-    private IEnumerable<string> EffectiveTagOptions =>
-        TagOptions is { } any && any.Any() ? TagOptions! : DefaultTagOptions;
-
-    private string _tagInput = "";
-
-// HTML void (self-closing) elements
-    private static readonly HashSet<string> SelfClosing = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
-        "meta", "param", "source", "track", "wbr"
-    };
-
-    private async Task InsertTagFromUi()
-    {
-        var raw = (_tagInput ?? "").Trim();
-        if (string.IsNullOrEmpty(raw)) return;
-
-        var markup = BuildClosedMarkup(raw); // inserts a valid standalone snippet
-        await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, markup);
-
-        _tagInput = "";
-        _saveState = SaveState.Typing;
-        StartDebounce();
-    }
-
-    private async Task TaggifySelectionFromUi()
-    {
-        var raw = (_tagInput ?? "").Trim();
-        if (string.IsNullOrEmpty(raw)) return;
-
-        var (name, attrs, isVoid) = ParseTagSpec(raw);
-        if (string.IsNullOrEmpty(name)) return;
-
-        if (isVoid)
-        {
-            // void elements can’t wrap selection; insert standalone self-closing
-            var standalone = attrs.Length > 0 ? $"<{name} {attrs} />" : $"<{name} />";
-            await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, standalone);
-        }
-        else
-        {
-            var open = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
-            var close = $"</{name}>";
-            await JS.InvokeVoidAsync("putdocText.wrapSelection", _ta, open, close);
-        }
-
-        _saveState = SaveState.Typing;
-        StartDebounce();
-    }
-
-// ===== helpers reused from earlier =====
-
-// Build a properly closed snippet from user input (standalone insertion)
-    private static string BuildClosedMarkup(string raw)
-    {
-        var s = raw.Trim();
-        if (string.IsNullOrWhiteSpace(s)) return s;
-
-        if (s.StartsWith("</") || s.Contains("</")) return s; // already a pair or explicit end tag
-
-        if (s.StartsWith("<") && !s.EndsWith(">")) s += ">";
-
-        if (!s.StartsWith("<"))
-        {
-            var name = ExtractTagName(s.AsSpan());
-            var attrs = s.Length > name.Length ? s.Substring(name.Length).TrimStart() : "";
-
-            if (SelfClosing.Contains(name))
-                return attrs.Length > 0 ? $"<{name} {attrs} />" : $"<{name} />";
-
-            var open = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
-            return $"{open}</{name}>";
-        }
-
-        if (s.EndsWith("/>")) return s; // already self-closed
-
-        var nameFromOpen = ExtractTagName(s.AsSpan(1));
-        if (string.IsNullOrEmpty(nameFromOpen)) return s;
-
-        if (SelfClosing.Contains(nameFromOpen))
-        {
-            if (!s.EndsWith("/>"))
-            {
-                s = s.TrimEnd('>');
-                s += " />";
-            }
-
-            return s;
-        }
-
-        return s + $"</{nameFromOpen}>";
-    }
-
-// Parse "tag [attrs]" from raw or "<tag [attrs]>" or "<tag [attrs]/>"
-    private static (string name, string attrs, bool isVoid) ParseTagSpec(string raw)
-    {
-        var s = raw.Trim();
-
-        // If user typed an end tag: use its name for wrapping
-        if (s.StartsWith("</"))
-        {
-            var n = ExtractTagName(s.AsSpan(2));
-            return (n, "", SelfClosing.Contains(n));
-        }
-
-        // Strip surrounding <>
-        if (s.StartsWith("<")) s = s.TrimStart('<');
-        if (s.EndsWith(">")) s = s.TrimEnd('>');
-        if (s.EndsWith("/")) s = s.TrimEnd('/').TrimEnd(); // remove '/>' tail
-
-        var name = ExtractTagName(s.AsSpan());
-        var attrs = s.Length > name.Length ? s.Substring(name.Length).TrimStart() : "";
-
-        return (name, attrs, SelfClosing.Contains(name));
-    }
-
-// Extract a tag name from "div ..." or "<div ...>"
-    private static string ExtractTagName(ReadOnlySpan<char> span)
-    {
-        int i = 0;
-        while (i < span.Length && (span[i] == '<' || span[i] == '/' || char.IsWhiteSpace(span[i]))) i++;
-        int start = i;
-        while (i < span.Length)
-        {
-            char c = span[i];
-            if (char.IsLetterOrDigit(c) || c == ':' || c == '-')
-            {
-                i++;
-                continue;
-            }
-
-            break;
-        }
-
-        return (i > start) ? span.Slice(start, i - start).ToString() : "";
-    }
-
-
-    // ---- INPUT ----
-    private string EditorText
-    {
-        get => editorText;
-        set
-        {
-            if (editorText == value) return;
-            editorText = value;
-            State.MarkDirty();
-            if (State.IsReadOnly) return; // block edits
-
-            _editVersion++;
-            _inputSerial++;
-            _saveState = SaveState.Typing;
-            StartDebounce();
-        }
-    }
-
-    private void StartDebounce()
-    {
-        if (_disposed) return;
-        _debounce?.Stop();
-        _debounce ??= new System.Timers.Timer(DebounceMs) { AutoReset = false };
-        _debounce.Elapsed -= DebouncedSave;
-        _debounce.Elapsed += DebouncedSave;
-        _debounce.Start();
-    }
-
-    private async void DebouncedSave(object? sender, System.Timers.ElapsedEventArgs e)
-    {
-        if (_disposed) return;
-        await InvokeAsync(async () =>
-        {
-            if (_disposed) return;
+            _redo.Clear();
             
-            // Always create an undo checkpoint first (even in Freeze mode)
-            await MaybePushUndoBaselineAsync();
-
-            // Respect Freeze: don't save, just leave IsDirty true
-            
-            if (_isSaving)
-            {
-                _pendingSave = true;
-                return;
-            }
-
-            await SaveAsync();
-
-            if (_pendingSave && !_disposed)
-            {
-                _pendingSave = false;
-                await SaveAsync();
-            }
-        });
+        }
     }
 
-    // ---- STATE SYNC ----
     private async Task SyncFromStateAsync(bool force)
     {
-        if (_disposed) return;
-
         var wasFragment = _isFragmentMode;
         _isFragmentMode = State.Selection.IsActive;
 
-        // Avoid stomping buffer mid-typing
+        // Don’t stomp while typing
         if (_saveState == SaveState.Typing) return;
 
         if (_isFragmentMode)
@@ -528,11 +262,12 @@
                 _lastSnippetId = State.Selection.SnippetId;
                 _lastSeenContentVersion = State.ContentVersion;
                 _saveState = SaveState.Idle;
+
                 EnsureContext();
-                _lastCommittedText = editorText;
+                _lastCheckpointText = editorText;
+
                 StateHasChanged();
             }
-
             return;
         }
 
@@ -550,31 +285,32 @@
             _lastSnippetId = sid;
             _lastSeenContentVersion = State.ContentVersion;
             _saveState = SaveState.Idle;
-            EnsureContext();
-            _lastCommittedText = editorText;
-        }
 
-        StateHasChanged();
+            EnsureContext();
+            _lastCheckpointText = editorText;
+
+            StateHasChanged();
+        }
     }
 
-    // ---- SAVE ----
+    // ---- SAVE (commit point) ----
     private async Task SaveAsync()
     {
-        _lastCommittedText = editorText;
-        if (_disposed || State.IsReadOnly || _isFrozen) return;
+        if (_isFrozen) return;                // guard
+        if (State.IsReadOnly) return;         // extra guard
 
         var myEpoch = ++_saveEpoch;
         var myEditVersionAtStart = _editVersion;
 
-        // snapshot (we restore using cached latest)
-        _ = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        // caret snapshot BEFORE we mutate anything
+        var caretBefore = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
         _isSaving = true;
         _savingSnapshot = editorText;
         _inputSerialAtSave = _inputSerial;
         _saveState = SaveState.Saving;
         StateHasChanged();
-
+        
         bool userTyped = false;
         bool didRewriteBuffer = false;
 
@@ -623,78 +359,256 @@
             else userTyped = true;
         }
 
+        // ===== commit succeeded =====
+        State.ClearDirty();
+
         _saveState = SaveState.Saved;
         _isSaving = false;
-        if (!_disposed) StateHasChanged();
+        StateHasChanged();
 
-        // restore caret if: latest save, no new typing, and we rewrote value
-        if (didRewriteBuffer && !userTyped && myEpoch == _saveEpoch && !_disposed && _editVersion == myEditVersionAtStart)
+        // restore caret if we rewrote buffer and no interleaved typing
+        if (didRewriteBuffer && !userTyped && myEpoch == _saveEpoch)
         {
             var latest = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
             await JS.InvokeVoidAsync("putdocText.setSel", _ta, latest.Start, latest.End);
         }
     }
+    
+    private async Task CreateUndoCheckpointAsync()
+    {
+        EnsureContext();
+
+        // Only checkpoint when the buffer changed relative to the last checkpoint
+        if (!string.Equals(editorText, _lastCheckpointText, StringComparison.Ordinal))
+        {
+            var caret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+            if (_undo.Count >= MaxUndo) _ = _undo.Pop();  // optional cap policy
+            _undo.Push(new UndoEntry(_lastCheckpointText, caret.Start, caret.End));
+            _lastCheckpointText = editorText;            // advance baseline to the new editor state
+            StateHasChanged();
+        }
+    }
+
 
     // ---- INSERTS ----
     private async Task InsertTpl(string kind)
     {
         var tpl = kind switch
         {
-            "card" => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
-            "brick" => "<div class=\"slf-brick\"><h3>BRICK</h3><p><b>Definition</b>: <span>...</span></p><div><b>Example</b>: <div>...</div></div></div>",
+            "card"   => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
+            "brick"  => "<div class=\"slf-brick\"><h3>BRICK</h3><p><b>Definition</b>: <span>...</span></p><div><b>Example</b>: <div>...</div></div></div>",
             "prompt" => "<div class=\"prompt_area\"><h3>Prompt</h3><p>...</p></div>",
-            "table" => "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
-            "list" => "<ul><li>Item 1</li><li>Item 2</li></ul>",
-            _ => "<p>...</p>"
+            "table"  => "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
+            "list"   => "<ul><li>Item 1</li><li>Item 2</li></ul>",
+            _        => "<p>...</p>"
         };
 
         await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, tpl);
+
         _saveState = SaveState.Typing;
+        State.MarkDirty();
         StartDebounce();
+        _redo.Clear();
     }
 
     private void ExitFragment()
     {
         State.CancelSelectionEdit();
-        _ = JS.InvokeVoidAsync("putdocPresence.releaseCurrent");
+        _ = JS.InvokeVoidAsync("putdocPresence?.releaseCurrent");
     }
 
-    private async Task CopyBuffer() =>
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", editorText ?? "");
-
-    private void OnInvalidated(Guid docId, string actorSessionId, bool structural, int newRev)
+    // ---- Freeze / Undo / Redo / SaveNow / Revert ----
+    private void ToggleFreeze()
     {
-        if (State.CurrentDocId != docId) return;
-        if (!structural) return; // only hard-stop on structural
-        if (actorSessionId == _sessionId) return; // ignore my own change
-        _staleStructural = true;
-        InvokeAsync(StateHasChanged);
+        _isFrozen = !_isFrozen;
+        if (!_isFrozen) StartDebounce();
+        StateHasChanged();
+    }
+
+    private async Task Undo()
+    {
+        if (_undo.Count == 0) return;
+        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        _redo.Push(new UndoEntry(editorText, curCaret.Start, curCaret.End));
+
+        var entry = _undo.Pop();
+        editorText = entry.Text;
+        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
+        _lastCheckpointText = entry.Text;
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        StartDebounce();
+    }
+
+    private async Task Redo()
+    {
+        if (_redo.Count == 0) return;
+        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        _undo.Push(new UndoEntry(editorText, curCaret.Start, curCaret.End));
+        
+        var entry = _redo.Pop();
+        editorText = entry.Text;
+        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
+        _lastCheckpointText = entry.Text;
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        StartDebounce();
+    }
+
+    private async Task SaveNow()
+    {
+        if (_isFrozen || State.IsReadOnly) return;
+        _debounce?.Stop();
+        await SaveAsync();
+    }
+
+    // optional “revert to last saved” (keeps redo)
+    private async Task RevertToCommitted()
+    {
+        var entry = new UndoEntry(_lastCheckpointText, 0, 0);
+        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        _redo.Push(new UndoEntry(editorText, curCaret.Start, curCaret.End));
+
+        editorText = entry.Text;
+        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
+
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        StartDebounce();
     }
 
     public void Dispose()
     {
-        _disposed = true;
         State.Changed -= OnStateChanged;
-        Invalidations.Invalidated -= OnInvalidated;
-
         if (_debounce is not null)
         {
-            try
-            {
-                _debounce.Stop();
-            }
-            catch
-            {
-            }
-
+            _debounce.Stop();
             _debounce.Dispose();
             _debounce = null;
         }
-
-        // be courteous on component teardown
-        _ = JS.InvokeVoidAsync("putdocPresence.releaseCurrent");
     }
 
-    public record TextSelection(int Start, int End);
+    // ---- Tag inserter helpers ----
+    [Parameter] public IEnumerable<string>? TagOptions { get; set; }
 
+    private static readonly string[] DefaultTagOptions = new[]
+    {
+        "div","p","h1","h2","h3",
+        "ul","ol","li",
+        "pre","code","span","strong","em",
+        "a href=\"\"",
+        "img src=\"\" alt=\"\"",
+        "table","thead","tbody","tr","th","td",
+        "section","article","aside","header","footer",
+    };
+    private IEnumerable<string> EffectiveTagOptions =>
+        TagOptions is { } any && any.Any() ? TagOptions! : DefaultTagOptions;
+
+    private string _tagInput = "";
+
+    private static readonly HashSet<string> SelfClosing = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "area","base","br","col","embed","hr","img","input","link",
+        "meta","param","source","track","wbr"
+    };
+
+    private async Task InsertTagFromUi()
+    {
+        var raw = (_tagInput ?? "").Trim();
+        if (string.IsNullOrEmpty(raw)) return;
+
+        var markup = BuildClosedMarkup(raw);
+        await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, markup);
+
+        _tagInput = "";
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        StartDebounce();
+        _redo.Clear();
+    }
+
+    private async Task TaggifySelectionFromUi()
+    {
+        var raw = (_tagInput ?? "").Trim();
+        if (string.IsNullOrEmpty(raw)) return;
+
+        var (name, attrs, isVoid) = ParseTagSpec(raw);
+        if (string.IsNullOrEmpty(name)) return;
+
+        if (isVoid)
+        {
+            var standalone = attrs.Length > 0 ? $"<{name} {attrs} />" : $"<{name} />";
+            await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, standalone);
+        }
+        else
+        {
+            var open  = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
+            var close = $"</{name}>";
+            await JS.InvokeVoidAsync("putdocText.wrapSelection", _ta, open, close);
+        }
+
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        StartDebounce();
+        _redo.Clear();
+    }
+
+    private static string BuildClosedMarkup(string raw)
+    {
+        var s = raw.Trim();
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        if (s.StartsWith("</") || s.Contains("</")) return s;
+        if (s.StartsWith("<") && !s.EndsWith(">")) s += ">";
+        if (!s.StartsWith("<"))
+        {
+            var name = ExtractTagName(s.AsSpan());
+            var attrs = s.Length > name.Length ? s.Substring(name.Length).TrimStart() : "";
+            if (SelfClosing.Contains(name))
+                return attrs.Length > 0 ? $"<{name} {attrs} />" : $"<{name} />";
+            var open = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
+            return $"{open}</{name}>";
+        }
+        if (s.EndsWith("/>")) return s;
+        var nm = ExtractTagName(s.AsSpan(1));
+        if (string.IsNullOrEmpty(nm)) return s;
+        if (SelfClosing.Contains(nm))
+        {
+            if (!s.EndsWith("/>")) { s = s.TrimEnd('>'); s += " />"; }
+            return s;
+        }
+        return s + $"</{nm}>";
+    }
+
+    private static (string name, string attrs, bool isVoid) ParseTagSpec(string raw)
+    {
+        var s = raw.Trim();
+        if (s.StartsWith("</"))
+        {
+            var n = ExtractTagName(s.AsSpan(2));
+            return (n, "", SelfClosing.Contains(n));
+        }
+        if (s.StartsWith("<")) s = s.TrimStart('<');
+        if (s.EndsWith(">"))   s = s.TrimEnd('>');
+        if (s.EndsWith("/"))   s = s.TrimEnd('/').TrimEnd();
+        var name = ExtractTagName(s.AsSpan());
+        var attrs = s.Length > name.Length ? s.Substring(name.Length).TrimStart() : "";
+        return (name, attrs, SelfClosing.Contains(name));
+    }
+
+    private static string ExtractTagName(ReadOnlySpan<char> span)
+    {
+        int i = 0;
+        while (i < span.Length && (span[i] == '<' || span[i] == '/' || char.IsWhiteSpace(span[i]))) i++;
+        int start = i;
+        while (i < span.Length)
+        {
+            char c = span[i];
+            if (char.IsLetterOrDigit(c) || c == ':' || c == '-') { i++; continue; }
+            break;
+        }
+        return (i > start) ? span.Slice(start, i - start).ToString() : "";
+    }
+
+    // Strongly-typed DTO for JS interop
+    public record TextSelection(int Start, int End);
 }
