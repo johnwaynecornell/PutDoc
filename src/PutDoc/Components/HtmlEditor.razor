@@ -62,6 +62,20 @@
     </button>
 </form>
 
+<button type="button" class="btn" @onclick="ToggleFreeze">
+    @(_isFrozen ? "Unfreeze (enable save)" : "Freeze (pause save)")
+</button>
+
+<button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">
+    Undo
+</button>
+
+@if (_isFrozen)
+{
+    <span style="font-size:.85rem; color:#b56;">Frozen — changes won’t be saved.</span>
+}
+
+
 <textarea @ref="_ta"
           disabled="@State.IsReadOnly"
           class="w-full"
@@ -111,8 +125,59 @@
             await JS.InvokeVoidAsync("putdocText.bindTabIndent", _ta);
             await JS.InvokeVoidAsync("putdocText.initEditor", _ta);
             _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId"); // per-window
+            
+            await JS.InvokeVoidAsync("eval", @"
+  (function(){
+    if (window.__pdUndoKeyBound) return; window.__pdUndoKeyBound = true;
+    document.addEventListener('keydown', function(e){
+      if (e.ctrlKey && e.key === 'z') {
+        const el = document.activeElement;
+        if (el && el.tagName === 'TEXTAREA') {
+          e.preventDefault();
+          DotNet.invokeMethodAsync('YourAssemblyName', 'InvokeEditorUndo'); // requires a static invoker
+        }
+      }
+    });
+  })();
+");
+
         }
     }
+    
+    private string ComputeContextKey()
+    {
+        if (State.Selection.IsActive)
+            return $"frag:{State.Selection.SnippetId}|{State.Selection.Selector}|{State.Selection.Scope}";
+        var sid = State.CurrentSnippet()?.Id;
+        return $"snip:{sid}";
+    }
+
+    private void EnsureContext()
+    {
+        var key = ComputeContextKey();
+        if (!string.Equals(key, _contextKey, StringComparison.Ordinal))
+        {
+            _contextKey = key;
+            _undo.Clear();
+            _lastCommittedText = editorText;  // treat current buffer as baseline
+        }
+    }
+
+    
+    private async Task MaybePushUndoBaselineAsync()
+    {
+        EnsureContext();
+
+        // Only push when buffer changed relative to last committed text
+        if (!string.Equals(editorText, _lastCommittedText, StringComparison.Ordinal))
+        {
+            // Use current caret for a nice restore point
+            var caret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+            _undo.Push(new UndoEntry(_lastCommittedText, caret.Start, caret.End));
+            StateHasChanged();
+        }
+    }
+
 }
 
 <div style="font-size:.8rem; color:#666; margin-top:.5rem;">
@@ -130,6 +195,19 @@
     // typing serials
     private long _inputSerial = 0;
     private long _inputSerialAtSave = 0;
+    
+    // --- Freeze mode ---
+    private bool _isFrozen = false;
+
+// --- Undo: stack of committed snapshots (text + caret) per context ---
+    private sealed record UndoEntry(string Text, int SelStart, int SelEnd);
+    private readonly Stack<UndoEntry> _undo = new();
+    private bool _canUndo => _undo.Count > 0;
+
+// Track the “context” (snippet vs fragment) so we don’t mix undos across items
+    private string _contextKey = "";         // e.g., "frag:<snippetId>|<puid>|Outer" or "snip:<snippetId>"
+    private string _lastCommittedText = "";  // the last version *after* a successful save
+
 
     // save control
     private bool _isSaving = false;
@@ -183,6 +261,32 @@
 
     private void OnStateChanged() =>
         _ = InvokeAsync(() => { return SyncFromStateAsync(force: false); });
+
+    private void ToggleFreeze()
+    {
+        _isFrozen = !_isFrozen;
+        if (!_isFrozen) StartDebounce();
+        StateHasChanged();
+    }
+
+    private async Task Undo()
+    {
+        if (_undo.Count == 0) return;
+
+        var entry = _undo.Pop();
+
+        // Replace editor buffer
+        editorText = entry.Text;
+        _lastCommittedText = editorText;
+        _saveState = SaveState.Typing; // shows as locally changed
+        State.MarkDirty();
+        StateHasChanged();
+
+        // Put caret back where it was for that snapshot
+        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
+
+        StartDebounce();
+    }
 
 
     private async Task ToggleScope()
@@ -381,7 +485,12 @@
         await InvokeAsync(async () =>
         {
             if (_disposed) return;
+            
+            // Always create an undo checkpoint first (even in Freeze mode)
+            await MaybePushUndoBaselineAsync();
 
+            // Respect Freeze: don't save, just leave IsDirty true
+            
             if (_isSaving)
             {
                 _pendingSave = true;
@@ -419,6 +528,8 @@
                 _lastSnippetId = State.Selection.SnippetId;
                 _lastSeenContentVersion = State.ContentVersion;
                 _saveState = SaveState.Idle;
+                EnsureContext();
+                _lastCommittedText = editorText;
                 StateHasChanged();
             }
 
@@ -439,6 +550,8 @@
             _lastSnippetId = sid;
             _lastSeenContentVersion = State.ContentVersion;
             _saveState = SaveState.Idle;
+            EnsureContext();
+            _lastCommittedText = editorText;
         }
 
         StateHasChanged();
@@ -447,7 +560,8 @@
     // ---- SAVE ----
     private async Task SaveAsync()
     {
-        if (_disposed || State.IsReadOnly) return;
+        _lastCommittedText = editorText;
+        if (_disposed || State.IsReadOnly || _isFrozen) return;
 
         var myEpoch = ++_saveEpoch;
         var myEditVersionAtStart = _editVersion;
