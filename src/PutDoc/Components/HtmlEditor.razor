@@ -66,7 +66,6 @@
     <span style="font-size:.85rem; color:#b56;">Frozen — changes won’t be saved.</span>
   }
 
-  @* your little dirty-dot lives nicely here *@
   @if (State.IsDirty)
   {
     <span title="Unsaved changes" style="width:.5rem;height:.5rem;border-radius:50%;
@@ -76,7 +75,7 @@
 
 <textarea @ref="_ta"
           class="w-full"
-          style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
+          style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
           @bind="EditorText"
           @bind:event="oninput">
 </textarea>
@@ -138,15 +137,37 @@
     // ===== Freeze =====
     private bool _isFrozen = false;
 
-    // ===== Undo/Redo =====
+    // ===== Undo/Redo (ring-list style) =====
     private sealed record UndoEntry(string Text, int SelStart, int SelEnd);
-    private readonly Stack<UndoEntry> _undo = new();
-    private readonly Stack<UndoEntry> _redo = new();
+    private readonly List<UndoEntry> _undo = new();
+    private readonly List<UndoEntry> _redo = new();
     private bool _canUndo => _undo.Count > 0;
     private bool _canRedo => _redo.Count > 0;
     private const int MaxUndo = 100;
 
-    // “commit” baseline
+    private void UndoPush(UndoEntry e)
+    {
+        if (_undo.Count >= MaxUndo) _undo.RemoveAt(0);
+        _undo.Add(e);
+    }
+    private UndoEntry? UndoPop()
+    {
+        if (_undo.Count == 0) return null;
+        var e = _undo[^1];
+        _undo.RemoveAt(_undo.Count - 1);
+        return e;
+    }
+    private void RedoPush(UndoEntry e) => _redo.Add(e);
+    private UndoEntry? RedoPop()
+    {
+        if (_redo.Count == 0) return null;
+        var e = _redo[^1];
+        _redo.RemoveAt(_redo.Count - 1);
+        return e;
+    }
+    private void RedoClear() => _redo.Clear();
+
+    // baseline: last editor checkpoint (not necessarily persisted)
     private string _lastCheckpointText = "";
 
     // context key so we don’t mix undos across snippet/fragment
@@ -166,8 +187,8 @@
             ? PutDocState.FragmentScope.Outer
             : PutDocState.FragmentScope.Inner;
 
-        await State.SetSelectionScope(_fragScope);  // updates Selection.Html
-        await SyncFromStateAsync(force: true);      // refresh editorText
+        await State.SetSelectionScope(_fragScope);
+        await SyncFromStateAsync(force: true);
     }
 
     // ---- INPUT ----
@@ -183,10 +204,8 @@
             _saveState = SaveState.Typing;
 
             State.MarkDirty();
-            StartDebounce();
-
-            // any new user edit invalidates redo
-            _redo.Clear();
+            RedoClear();        // new edits kill redo
+            StartDebounce();    // always start, even if frozen (we still checkpoint)
         }
     }
 
@@ -203,8 +222,10 @@
     {
         await InvokeAsync(async () =>
         {
+            // 1) Always checkpoint first (even while frozen)
             await CreateUndoCheckpointAsync();
 
+            // 2) If frozen, skip persistence
             if (_isFrozen) return;
 
             if (_isSaving)
@@ -240,7 +261,7 @@
             _contextKey = key;
             _undo.Clear();
             _redo.Clear();
-            
+            _lastCheckpointText = editorText;
         }
     }
 
@@ -249,7 +270,6 @@
         var wasFragment = _isFragmentMode;
         _isFragmentMode = State.Selection.IsActive;
 
-        // Don’t stomp while typing
         if (_saveState == SaveState.Typing) return;
 
         if (_isFragmentMode)
@@ -293,16 +313,29 @@
         }
     }
 
-    // ---- SAVE (commit point) ----
+    // ---- Checkpoint (always runs in debounce) ----
+    private async Task CreateUndoCheckpointAsync()
+    {
+        EnsureContext();
+
+        if (!string.Equals(editorText, _lastCheckpointText, StringComparison.Ordinal))
+        {
+            var caret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+            UndoPush(new UndoEntry(_lastCheckpointText, caret.Start, caret.End));
+            _lastCheckpointText = editorText;    // advance baseline
+            StateHasChanged();
+        }
+    }
+
+    // ---- SAVE (no undo push here; checkpoint already advanced) ----
     private async Task SaveAsync()
     {
-        if (_isFrozen) return;                // guard
-        if (State.IsReadOnly) return;         // extra guard
+        if (_isFrozen) return;
+        if (State.IsReadOnly) return;
 
         var myEpoch = ++_saveEpoch;
         var myEditVersionAtStart = _editVersion;
 
-        // caret snapshot BEFORE we mutate anything
         var caretBefore = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
         _isSaving = true;
@@ -310,7 +343,7 @@
         _inputSerialAtSave = _inputSerial;
         _saveState = SaveState.Saving;
         StateHasChanged();
-        
+
         bool userTyped = false;
         bool didRewriteBuffer = false;
 
@@ -359,36 +392,18 @@
             else userTyped = true;
         }
 
-        // ===== commit succeeded =====
         State.ClearDirty();
 
         _saveState = SaveState.Saved;
         _isSaving = false;
         StateHasChanged();
 
-        // restore caret if we rewrote buffer and no interleaved typing
         if (didRewriteBuffer && !userTyped && myEpoch == _saveEpoch)
         {
             var latest = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
             await JS.InvokeVoidAsync("putdocText.setSel", _ta, latest.Start, latest.End);
         }
     }
-    
-    private async Task CreateUndoCheckpointAsync()
-    {
-        EnsureContext();
-
-        // Only checkpoint when the buffer changed relative to the last checkpoint
-        if (!string.Equals(editorText, _lastCheckpointText, StringComparison.Ordinal))
-        {
-            var caret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-            if (_undo.Count >= MaxUndo) _ = _undo.Pop();  // optional cap policy
-            _undo.Push(new UndoEntry(_lastCheckpointText, caret.Start, caret.End));
-            _lastCheckpointText = editorText;            // advance baseline to the new editor state
-            StateHasChanged();
-        }
-    }
-
 
     // ---- INSERTS ----
     private async Task InsertTpl(string kind)
@@ -408,7 +423,7 @@
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
-        _redo.Clear();
+        RedoClear();
     }
 
     private void ExitFragment()
@@ -417,24 +432,26 @@
         _ = JS.InvokeVoidAsync("putdocPresence?.releaseCurrent");
     }
 
-    // ---- Freeze / Undo / Redo / SaveNow / Revert ----
+    // ---- Freeze / Undo / Redo / SaveNow ----
     private void ToggleFreeze()
     {
         _isFrozen = !_isFrozen;
-        if (!_isFrozen) StartDebounce();
         StateHasChanged();
     }
 
     private async Task Undo()
     {
-        if (_undo.Count == 0) return;
-        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-        _redo.Push(new UndoEntry(editorText, curCaret.Start, curCaret.End));
+        var entry = UndoPop(); if (entry is null) return;
 
-        var entry = _undo.Pop();
+        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        RedoPush(new UndoEntry(editorText, curCaret.Start, curCaret.End));
+
         editorText = entry.Text;
-        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
         _lastCheckpointText = entry.Text;
+
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("putdocText.setSelSmooth", _ta, entry.SelStart, entry.SelEnd);
+
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
@@ -442,14 +459,17 @@
 
     private async Task Redo()
     {
-        if (_redo.Count == 0) return;
+        var entry = RedoPop(); if (entry is null) return;
+
         var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-        _undo.Push(new UndoEntry(editorText, curCaret.Start, curCaret.End));
-        
-        var entry = _redo.Pop();
+        UndoPush(new UndoEntry(editorText, curCaret.Start, curCaret.End));
+
         editorText = entry.Text;
-        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
         _lastCheckpointText = entry.Text;
+
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("putdocText.setSelSmooth", _ta, entry.SelStart, entry.SelEnd);
+
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
@@ -457,24 +477,14 @@
 
     private async Task SaveNow()
     {
-        if (_isFrozen || State.IsReadOnly) return;
+        if (State.IsReadOnly) return;
         _debounce?.Stop();
+
+        // Still checkpoint first (even on explicit save), then persist if not frozen.
+        await CreateUndoCheckpointAsync();
+        if (_isFrozen) return;
+
         await SaveAsync();
-    }
-
-    // optional “revert to last saved” (keeps redo)
-    private async Task RevertToCommitted()
-    {
-        var entry = new UndoEntry(_lastCheckpointText, 0, 0);
-        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-        _redo.Push(new UndoEntry(editorText, curCaret.Start, curCaret.End));
-
-        editorText = entry.Text;
-        await JS.InvokeVoidAsync("putdocText.setSel", _ta, entry.SelStart, entry.SelEnd);
-
-        _saveState = SaveState.Typing;
-        State.MarkDirty();
-        StartDebounce();
     }
 
     public void Dispose()
@@ -524,7 +534,7 @@
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
-        _redo.Clear();
+        RedoClear();
     }
 
     private async Task TaggifySelectionFromUi()
@@ -550,7 +560,7 @@
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
-        _redo.Clear();
+        RedoClear();
     }
 
     private static string BuildClosedMarkup(string raw)
