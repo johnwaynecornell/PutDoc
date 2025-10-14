@@ -217,6 +217,50 @@
                 });
             });
         };
+
+        // Assumes caretCache: WeakMap<HTMLTextAreaElement, {start:number, end:number}>
+        ns.setSelAndCache = function (ta, start, end) {
+            if (!ta) return Promise.resolve();
+
+            // Clamp to current value length to avoid DOM exceptions
+            const len = (ta.value && ta.value.length) || 0;
+            start = Math.max(0, Math.min(start ?? 0, len));
+            end   = Math.max(0, Math.min(end   ?? start, len));
+             
+            return new Promise((resolve) => {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        try {
+                            ta.setSelectionRange(start, end);
+                            ta.focus();
+                        } catch { }
+
+                        // Update cache optimistically
+                        try { caretCache.set(ta, { start, end }); } catch {}
+
+                        // Verify; if it didn't take, try one corrective pass
+                        try {
+                            const curStart = ta.selectionStart ?? 0;
+                            const curEnd   = ta.selectionEnd   ?? 0;
+                            if (curStart !== start || curEnd !== end) {
+                                requestAnimationFrame(() => {
+                                    try {
+                                        ta.setSelectionRange(start, end);
+                                        ta.focus();
+                                    } catch {}
+                                    try { caretCache.set(ta, { start, end }); } catch {}
+                                    resolve();
+                                });
+                                return;
+                            }
+                        } catch { }
+                        resolve();
+                    });
+                }); 
+            }); 
+        };
+
+
     })(window.putdocText);
     
     window.putdocText.bindTabIndent = function (ta) {
@@ -299,6 +343,127 @@
         ta.dispatchEvent(new Event('input', { bubbles: true }));
         ta.focus();
     };
+
+    // Keyboard shortcuts scoped to a specific textarea
+    window.putdocText.bindEditorShortcuts = function (ta, dotnetRef) {
+        if (!ta || ta._pdKeysBound) return;
+        ta._pdKeysBound = true;
+
+        const handler = (e) => {
+            // Only when textarea itself is focused
+            if (document.activeElement !== ta) return;
+
+            const ctrl = e.ctrlKey || e.metaKey; // support Cmd on macOS
+            if (!ctrl) return;
+
+            const key = (e.key || '').toLowerCase();
+
+            if (key === 'z') {
+                e.preventDefault(); // block native undo
+                if (e.shiftKey) {
+                    dotnetRef.invokeMethodAsync('InvokeRedo');
+                } else {
+                    dotnetRef.invokeMethodAsync('InvokeUndo');
+                }
+            } else if (key === 'y') {
+                e.preventDefault(); // block native redo
+                dotnetRef.invokeMethodAsync('InvokeRedo');
+            } else if (key === 's') {
+                e.preventDefault(); // stop browser's Save dialog
+                dotnetRef.invokeMethodAsync('InvokeSaveNow');
+            }
+        };
+
+        ta.addEventListener('keydown', handler);
+        ta._pdKeysCleanup = () => ta.removeEventListener('keydown', handler);
+    };
+
+    window.putdocText.unbindEditorShortcuts = function (ta) {
+        if (!ta || !ta._pdKeysBound) return;
+        try { ta._pdKeysCleanup && ta._pdKeysCleanup(); } catch {}
+        ta._pdKeysBound = false;
+        delete ta._pdKeysCleanup;
+    };
+
+
+    // Keyboard shortcuts scoped to a specific textarea
+    window.putdocText.bindEditorShortcuts = function (ta, dotnetRef) {
+        if (!ta || ta._pdKeysBound) return;
+        ta._pdKeysBound = true;
+
+        const handler = (e) => {
+            // Only when textarea itself is focused
+            if (document.activeElement !== ta) return;
+
+            const ctrl = e.ctrlKey || e.metaKey; // support Cmd on macOS
+            if (!ctrl) return;
+
+            const key = (e.key || '').toLowerCase();
+
+            if (key === 'z') {
+                e.preventDefault(); // block native undo
+                if (e.shiftKey) {
+                    dotnetRef.invokeMethodAsync('InvokeRedo');
+                } else {
+                    dotnetRef.invokeMethodAsync('InvokeUndo');
+                }
+            } else if (key === 'y') {
+                e.preventDefault(); // block native redo
+                dotnetRef.invokeMethodAsync('InvokeRedo');
+            }
+        };
+
+        ta.addEventListener('keydown', handler);
+        ta._pdKeysCleanup = () => ta.removeEventListener('keydown', handler);
+    };
+
+    window.putdocText.unbindEditorShortcuts = function (ta) {
+        if (!ta || !ta._pdKeysBound) return;
+        try { ta._pdKeysCleanup && ta._pdKeysCleanup(); } catch {}
+        ta._pdKeysBound = false;
+        delete ta._pdKeysCleanup;
+    };
+
+    window.putdocText.bindCaretNotify = function (ta, dotnetRef) {
+        if (!ta || ta._pdCaretNotifyBound) return;
+        ta._pdCaretNotifyBound = true;
+
+        let rafId = 0;
+        const fire = () => {
+            rafId = 0;
+            try {
+                const start = ta.selectionStart ?? 0;
+                const end   = ta.selectionEnd   ?? start;
+                dotnetRef && dotnetRef.invokeMethodAsync('NotifyCaretChanged', start, end);
+            } catch {}
+        };
+
+        const onMove = () => {
+            if (document.activeElement !== ta) return;
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(fire);
+        };
+
+        ['keyup','mouseup','select','focus','beforeinput','input'].forEach(ev =>
+            ta.addEventListener(ev, onMove, { passive: true })
+        );
+
+        ta._pdCaretNotifyCleanup = () => {
+            ['keyup','mouseup','select','focus','beforeinput','input'].forEach(ev =>
+                ta.removeEventListener(ev, onMove)
+            );
+            if (rafId) cancelAnimationFrame(rafId);
+            rafId = 0;
+        };
+    };
+
+    window.putdocText.unbindCaretNotify = function (ta) {
+        if (!ta || !ta._pdCaretNotifyBound) return;
+        try { ta._pdCaretNotifyCleanup && ta._pdCaretNotifyCleanup(); } catch {}
+        ta._pdCaretNotifyBound = false;
+        delete ta._pdCaretNotifyCleanup;
+    };
+
 
 
     window.putdocEnh = (function () {

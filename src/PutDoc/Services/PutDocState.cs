@@ -65,7 +65,11 @@ public void ClearDirty()
     // NEW: change event
     public event Action? Changed;
     public void Notify() => Changed?.Invoke();
+    public event Action<string>? CheckpointRequested;
 
+    // helper you can call from anywhere (ToolbarHub, etc.)
+    public void RequestCheckpoint(string label) => CheckpointRequested?.Invoke(label);
+    
     public async Task<bool> RenameAsync(string newName)
     {
         if (Meta is null) return false;
@@ -366,7 +370,7 @@ public void ClearDirty()
         }
     }
 
-// Reorder pages within a collection
+    // Reorder pages within a collection
     public async Task MovePage(Guid collectionId, Guid pageId, int delta)
     {
         if (!Doc.Collections.TryGetValue(collectionId, out var collection)) return;
@@ -390,7 +394,7 @@ public void ClearDirty()
         Notify();
     }
 
-// Clone a page
+    // Clone a page
     public async Task<Guid> ClonePage(Guid collectionId, Guid pageId)
     {
         if (!Doc.Pages.TryGetValue(pageId, out var page)) return Guid.Empty;

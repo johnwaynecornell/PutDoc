@@ -19,7 +19,9 @@
     </div>
 }
 
-<div class="palette" style="display:flex; gap:.35rem; flex-wrap:wrap; margin-bottom:.35rem;">
+
+<div style="background-color: #DDF; padding: .5rem; border-radius: .5rem; margin-bottom: .5rem; border: 1px solid #CCE;">
+    <div class="palette">    
     <button type="button" class="btn" @onclick='() => InsertTpl("card")'>+ slf-card</button>
     <button type="button" class="btn" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
     <button type="button" class="btn" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
@@ -31,8 +33,7 @@
 </div>
 
 <!-- Tag inserter + taggify -->
-<form class="tag-inserter"
-      style="display:flex; gap:.35rem; align-items:center; margin-bottom:.35rem;"
+<form class="tag-inserter palette"
       @onsubmit="InsertTagFromUi" @onsubmit:preventDefault="true">
 
   <input list="html-tag-suggestions"
@@ -53,9 +54,12 @@
 </form>
 
 <!-- Save/Undo/Redo/Freeze row -->
-<div style="display:flex; gap:.35rem; align-items:center; margin-bottom:.35rem;">
+<div class="palette">
   <button type="button" class="btn" @onclick="SaveNow" disabled="@(_isFrozen || State.IsReadOnly)">Save now</button>
-  <button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">Undo</button>
+  <button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">
+      @("Undo" + (_canUndo && _undo[^1]?.Label is { } L ? $": {L}" : ""))
+  </button>
+  
   <button type="button" class="btn" @onclick="Redo" disabled="@(!_canRedo)">Redo</button>
   <button type="button" class="btn" @onclick="ToggleFreeze">
     @(_isFrozen ? "Unfreeze (enable save)" : "Freeze (pause save)")
@@ -72,7 +76,7 @@
           background:#e67; display:inline-block; margin-left:.3rem;"></span>
   }
 </div>
-
+</div>
 <textarea @ref="_ta"
           class="w-full"
           style="height: 12rem; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace; padding: .5rem; border: 1px solid #ddd; border-radius: .5rem;"
@@ -87,6 +91,10 @@
         {
             await JS.InvokeVoidAsync("putdocText.bindTabIndent", _ta);
             await JS.InvokeVoidAsync("putdocText.initEditor", _ta);
+            
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("putdocText.bindEditorShortcuts", _ta, _selfRef);
+            await JS.InvokeVoidAsync("putdocText.bindCaretNotify", _ta, _selfRef);
         }
     }
 }
@@ -96,6 +104,7 @@
 </div>
 
 @code {
+    private DotNetObjectReference<HtmlEditor>? _selfRef; // for JS callbacks
     // ===== UI state & editor buffer =====
     private string editorText = "";
     private ElementReference _ta;
@@ -138,12 +147,42 @@
     private bool _isFrozen = false;
 
     // ===== Undo/Redo (ring-list style) =====
-    private sealed record UndoEntry(string Text, int SelStart, int SelEnd);
+    private sealed record UndoEntry(string Text, int SelStart, int SelEnd, string? Label = null);
     private readonly List<UndoEntry> _undo = new();
     private readonly List<UndoEntry> _redo = new();
     private bool _canUndo => _undo.Count > 0;
     private bool _canRedo => _redo.Count > 0;
     private const int MaxUndo = 100;
+    
+    private async void OnCheckpointRequested(string label)
+    {
+        try
+        {
+            // Only checkpoint if editor text matches our known baseline;
+            // if the user is mid-typing, your debounce will checkpoint soon anyway.
+            if (string.Equals(editorText, _lastCheckpointText, StringComparison.Ordinal))
+            {
+                var caret = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
+                UndoPush(new UndoEntry(_lastCheckpointText, caret.Start, caret.End, label));
+                // Do NOT advance _lastCheckpointText here; baseline (pre-action) remains the same.
+                // The upcoming mutation will reflect in editorText via State events and then
+                // your regular flow will update baselines.
+                StateHasChanged();
+            }
+            else
+            {
+                // If diverged, still push what we know—better to have a checkpoint than none.
+                var caret = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
+                UndoPush(new UndoEntry(_lastCheckpointText, caret.Start, caret.End, label));
+                StateHasChanged();
+            }
+        }
+        catch
+        {
+            // swallow—checkpointing should never block the action
+        }
+    }
+
 
     private void UndoPush(UndoEntry e)
     {
@@ -172,10 +211,16 @@
 
     // context key so we don’t mix undos across snippet/fragment
     private string _contextKey = "";
+    
+    // Baseline caret that corresponds to _lastCheckpointText
+    private int _baselineCaretStart = 0;
+    private int _baselineCaretEnd = 0;
 
     protected override void OnInitialized()
     {
         State.Changed += OnStateChanged;
+        State.CheckpointRequested += OnCheckpointRequested;   // <—
+
         _ = SyncFromStateAsync(force: true);
     }
 
@@ -265,6 +310,8 @@
         }
     }
 
+    
+    
     private async Task SyncFromStateAsync(bool force)
     {
         var wasFragment = _isFragmentMode;
@@ -285,6 +332,17 @@
 
                 EnsureContext();
                 _lastCheckpointText = editorText;
+                
+                try
+                {
+                    var sel = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
+                    _baselineCaretStart = sel.Start;
+                    _baselineCaretEnd = sel.End;
+                }
+                catch
+                {
+                    _baselineCaretStart = _baselineCaretEnd = 0;
+                }
 
                 StateHasChanged();
             }
@@ -309,6 +367,17 @@
             EnsureContext();
             _lastCheckpointText = editorText;
 
+            try
+            {
+                var sel = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
+                _baselineCaretStart = sel.Start;
+                _baselineCaretEnd = sel.End;
+            }
+            catch
+            {
+                _baselineCaretStart = _baselineCaretEnd = 0;
+            }
+            
             StateHasChanged();
         }
     }
@@ -320,9 +389,15 @@
 
         if (!string.Equals(editorText, _lastCheckpointText, StringComparison.Ordinal))
         {
-            var caret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-            UndoPush(new UndoEntry(_lastCheckpointText, caret.Start, caret.End));
-            _lastCheckpointText = editorText;    // advance baseline
+            // Push the PRIOR baseline (text + its caret) onto undo:
+            UndoPush(new UndoEntry(_lastCheckpointText, _baselineCaretStart, _baselineCaretEnd));
+
+            // Advance the baseline to the NEW editor state + current caret
+            var caret = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
+            _lastCheckpointText = editorText;
+            _baselineCaretStart = caret.Start;
+            _baselineCaretEnd   = caret.End;
+
             StateHasChanged();
         }
     }
@@ -438,7 +513,16 @@
         _isFrozen = !_isFrozen;
         StateHasChanged();
     }
+    
+    [JSInvokable] // called by putdoc.js (Ctrl/Cmd+Z)
+    public Task InvokeUndo() => Undo();
 
+    [JSInvokable] // called by putdoc.js (Ctrl+Y or Shift+Ctrl/Cmd+Z)
+    public Task InvokeRedo() => Redo();
+    
+    [JSInvokable]
+    public Task InvokeSaveNow() => SaveNow();
+    
     private async Task Undo()
     {
         var entry = UndoPop(); if (entry is null) return;
@@ -448,13 +532,18 @@
 
         editorText = entry.Text;
         _lastCheckpointText = entry.Text;
+        _baselineCaretStart = entry.SelStart;
+        _baselineCaretEnd   = entry.SelEnd;
 
         await InvokeAsync(StateHasChanged);
-        await JS.InvokeVoidAsync("putdocText.setSelSmooth", _ta, entry.SelStart, entry.SelEnd);
-
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
+        
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
+        
+        await InvokeAsync(StateHasChanged);
+
     }
 
     private async Task Redo()
@@ -466,14 +555,31 @@
 
         editorText = entry.Text;
         _lastCheckpointText = entry.Text;
+        _baselineCaretStart = entry.SelStart;
+        _baselineCaretEnd   = entry.SelEnd;
 
         await InvokeAsync(StateHasChanged);
-        await JS.InvokeVoidAsync("putdocText.setSelSmooth", _ta, entry.SelStart, entry.SelEnd);
-
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
+        await InvokeAsync(StateHasChanged);
+
     }
+    
+    [JSInvokable]
+    public Task NotifyCaretChanged(int start, int end)
+    {
+        // Only update the baseline caret if the buffer matches the baseline text.
+        // (If text diverged, the next checkpoint will snapshot current caret anyway.)
+        if (string.Equals(editorText, _lastCheckpointText, StringComparison.Ordinal))
+        {
+            _baselineCaretStart = Math.Max(0, Math.Min(start, editorText.Length));
+            _baselineCaretEnd   = Math.Max(0, Math.Min(end,   editorText.Length));
+        }
+        return Task.CompletedTask;
+    }
+
 
     private async Task SaveNow()
     {
@@ -490,12 +596,20 @@
     public void Dispose()
     {
         State.Changed -= OnStateChanged;
+        State.CheckpointRequested -= OnCheckpointRequested;   // <—
+
         if (_debounce is not null)
         {
             _debounce.Stop();
             _debounce.Dispose();
             _debounce = null;
         }
+
+        try { _ = JS.InvokeVoidAsync("putdocText.unbindEditorShortcuts", _ta); } catch { /* ignore */ }
+        try { _ = JS.InvokeVoidAsync("putdocText.unbindCaretNotify", _ta); } catch {}
+
+        _selfRef?.Dispose();
+        _selfRef = null;
     }
 
     // ---- Tag inserter helpers ----

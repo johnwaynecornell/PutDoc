@@ -20,8 +20,7 @@
     System.Threading.Timer? _hbTimer; //Presence
     System.Threading.Timer? _hb; //DocWriter
     bool _isWriter;
-
-
+    
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
@@ -206,7 +205,6 @@
             
             return new { status = "ok" };
         }
-
         
         if (action == "copy")
         {
@@ -218,6 +216,8 @@
             
             return new { status = "ok" };
         }
+        
+        State.RequestCheckpoint(action);
         
         // Non-edit mutations delegate to your HtmlTransformService as before
         var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
