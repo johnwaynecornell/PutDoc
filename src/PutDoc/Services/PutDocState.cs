@@ -10,18 +10,18 @@ namespace PutDoc.Services;
 
 public class PutDocState
 {
-    public PutDocFile Doc { get; private set; } = new();  // in-memory content
-    public DocMeta? Meta { get; private set; }            // catalog entry (id, name, version, modified)
+    public PutDocFile Doc { get; private set; } = new(); // in-memory content
+    public DocMeta? Meta { get; private set; } // catalog entry (id, name, version, modified)
 
     public Guid CurrentDocId => Meta?.Id ?? Guid.Empty;
-    public int  DocVersion    => Meta?.Version ?? 0;       // for CAS
-    public string DocName     => Meta?.Name ?? "Untitled";
-    
+    public int DocVersion => Meta?.Version ?? 0; // for CAS
+    public string DocName => Meta?.Name ?? "Untitled";
+
     public Guid? SelectedPageId { get; set; }
     public Guid? SelectedSnippetId { get; set; }
 
     public string CurrentUserId { get; set; } = new Guid().ToString();
-    
+
     //readonly IPutDocStore _store;
     readonly IAngleSoftFilter _filter;
     private readonly IDocCatalogService _catalog;
@@ -43,25 +43,28 @@ public class PutDocState
             IsReadOnly = ro;
             _ = _js.InvokeVoidAsync(
                 "document.documentElement.setAttribute", "data-pd-readonly", ro ? "true" : "false");
-            IsReadOnly = ro; Changed?.Invoke();
-        } 
+            IsReadOnly = ro;
+            Changed?.Invoke();
+        }
     }
-    
+
     public bool IsDirty { get; private set; }
-public void MarkDirty()
-{
+
+    public void MarkDirty()
+    {
         if (IsDirty) return;
         IsDirty = true;
         Changed?.Invoke();
-}
-public void ClearDirty()
-{
+    }
+
+    public void ClearDirty()
+    {
         if (!IsDirty) return;
         IsDirty = false;
         Changed?.Invoke();
-}
+    }
 
-    
+
     // NEW: change event
     public event Action? Changed;
     public void Notify() => Changed?.Invoke();
@@ -69,6 +72,84 @@ public void ClearDirty()
 
     // helper you can call from anywhere (ToolbarHub, etc.)
     public void RequestCheckpoint(string label) => CheckpointRequested?.Invoke(label);
+    
+    public enum ContextChangeDecision { Proceed, Cancel, Save, Discard }
+
+// Raised when someone wants to change context (page/snippet) but we may be Frozen/Dirty.
+// Exactly ONE listener (the active HtmlEditor) should handle and return a decision.
+    public event Func<Task<ContextChangeDecision>>? ContextChangeRequested;
+
+// Fire-and-forget signal the HtmlEditor should perform a SaveNow
+    public event Action? SaveRequested;
+
+    // Let State ask the editor whether it’s frozen.
+    public Func<bool> IsFrozen { get; set; } // HtmlEditor will assign}
+    public Action ClearFrozen { get; set; } // HtmlEditor will assign}
+
+// Internal flag to bypass the guard for system flows.
+    private int _suppressGuardDepth = 0;
+    public IDisposable SuppressGuardScope()
+    {
+        _suppressGuardDepth++;
+        return new Scope(() => _suppressGuardDepth--);
+    }
+    private sealed class Scope : IDisposable { private readonly Action _on; public Scope(Action on) => _on = on; public void Dispose() => _on(); }
+
+    public async Task<bool> EnsureClearForTextChangeInternalAsync()
+    {
+        if (_suppressGuardDepth > 0) return true;                 // internal/system: skip guard
+        
+        if (!(IsDirty || (IsFrozen?.Invoke() ?? false))) return true;
+
+        if (ContextChangeRequested is null) return false;          // no UI to ask → block
+
+        var decision = (!IsDirty) ? ContextChangeDecision.Discard: await ContextChangeRequested.Invoke();
+
+        switch (decision)
+        {
+            case ContextChangeDecision.Cancel:
+                return false;
+
+            case ContextChangeDecision.Discard:
+                return true;
+
+            case ContextChangeDecision.Save:
+                // If editor is frozen, treat like cancel (your modal already disables Save in that case).
+                    return !IsDirty;                               // only proceed if save cleared dirty
+            case ContextChangeDecision.Proceed:
+            default:
+                return true;
+        }
+    }
+    
+    public async Task<bool> TryLoadDocumentAsync(Guid docId)
+    {
+        if (!await EnsureClearForTextChangeInternalAsync()) return false;
+        await LoadAsync(docId);
+        return true;
+    }
+
+    public async Task<bool> TrySelectPageAsync(Guid pageId)
+    {
+        if (!await EnsureClearForTextChangeInternalAsync()) return false;
+        SelectPage(pageId);
+        return true;
+    }
+
+    public async Task<bool> TrySelectSnippetAsync(Guid snippetId)
+    {
+        if (!await EnsureClearForTextChangeInternalAsync()) return false;
+        SelectSnippet(snippetId);
+        return true;
+    }
+/*
+// Examples of “core” versions that don’t trigger prompts:
+    private async Task LoadDocumentCoreAsync(Guid docId)
+    {
+        using (SuppressGuardScope()) { this.LoadAsync(docId) // load file, set Doc, etc. 
+        ClearDirty(); } 
+        
+    }*/
     
     public async Task<bool> RenameAsync(string newName)
     {
@@ -79,10 +160,11 @@ public void ClearDirty()
             Meta = Meta with { Name = newName, Modified = DateTimeOffset.UtcNow };
             Changed?.Invoke();
         }
+
         return ok;
     }
 
-    
+
     // NEW: select snippet + notify others to re-render
     public void SelectSnippet(Guid? id)
     {
@@ -98,7 +180,7 @@ public void ClearDirty()
         SelectedSnippetId = CurrentPage()?.Snippets.FirstOrDefault()?.Id;
         Notify();
     }
-    
+
     /*
     public async Task LoadAsync()
     {
@@ -117,7 +199,7 @@ public void ClearDirty()
     public static Stream ConvertStringToStream(string inputString, Encoding encoding = null)
     {
         // Use UTF8 encoding by default if no encoding is specified
-        encoding ??= Encoding.UTF8; 
+        encoding ??= Encoding.UTF8;
 
         // Convert the string to a byte array using the specified encoding
         byte[] byteArray = encoding.GetBytes(inputString);
@@ -127,19 +209,21 @@ public void ClearDirty()
 
         return memoryStream;
     }
+
     public async Task<Guid> LoadDefaultAsync()
     {
         var id = await _catalog.EnsureDefaultAsync("Untitled");
         await LoadAsync(id);
         return id;
     }
+
     public async Task LoadAsync(Guid id)
     {
         var meta = await _catalog.GetAsync(id) ?? throw new FileNotFoundException($"Doc {id} not found");
         var payload = await _catalog.LoadDocumentAsync(id) ?? ("{}", meta.Version);
 
         // parse payload.json -> PutDocFile
-        
+
         JsonSerializerOptions _json = new()
         {
             WriteIndented = true,
@@ -148,7 +232,7 @@ public void ClearDirty()
 
         var fs = ConvertStringToStream(payload.json);
         Doc = await JsonSerializer.DeserializeAsync<PutDocFile>(fs, _json);
-        
+
         foreach (var p in Doc.Pages.Values)
             for (int i = 0; i < p.Snippets.Count; i++)
                 p.Snippets[i].Html = await HtmlPuid.EnsurePuidsAsync(p.Snippets[i].Html ?? "");
@@ -169,13 +253,13 @@ public void ClearDirty()
         if (id == Guid.Empty) throw new InvalidOperationException("No current document");
 
         var json = JsonSerializer.Serialize(Doc); // your existing serializer
-        var expected = DocVersion;           // CAS
+        var expected = DocVersion; // CAS
 
         await _catalog.SaveDocumentAsync(id, json, expectedVersion: expected);
 
         // reflect bump locally
         Meta = Meta! with { Version = expected + 1, Modified = DateTimeOffset.UtcNow };
-        ClearDirty();        
+        ClearDirty();
         Changed?.Invoke();
     }
 
@@ -186,12 +270,17 @@ public void ClearDirty()
     {
         await SaveWholeDocumentAsync();
     }
-    
+
     public long ContentVersion { get; private set; }
 
-    public enum UpdateSource { Editor, External }
+    public enum UpdateSource
+    {
+        Editor,
+        External
+    }
+
     public UpdateSource LastUpdateSource { get; private set; } = UpdateSource.External;
-    
+
     public async Task SetSnippetHtml(string html, bool isRawFromEditor = true)
     {
         var s = CurrentSnippet();
@@ -205,9 +294,9 @@ public void ClearDirty()
 
         // 3) re-add puids for runtime reliability
         cleaned = await HtmlPuid.EnsurePuidsAsync(cleaned);
-        
+
         s.Html = cleaned;
-        
+
         LastUpdateSource = isRawFromEditor ? UpdateSource.Editor : UpdateSource.External;
         ContentVersion++;
 
@@ -257,7 +346,11 @@ public void ClearDirty()
         await SaveAsync();
     }
 
-    public enum FragmentScope { Inner, Outer }
+    public enum FragmentScope
+    {
+        Inner,
+        Outer
+    }
 
     // 🔸 selection edit model
     public sealed class SelectionEdit
@@ -266,7 +359,7 @@ public void ClearDirty()
         public Guid SnippetId { get; set; }
         public string Selector { get; set; } = "";
         public string Html { get; set; } = ""; // fragment outerHTML
-        
+
         public FragmentScope Scope { get; set; } = FragmentScope.Inner;
     }
 
@@ -281,30 +374,33 @@ public void ClearDirty()
         SelectedSnippetId = snippetId; // make sure editor focuses this snippet
         Notify();
     }
-    
+
     public async Task BeginFragmentEdit(Guid snippetId, string puid, FragmentScope scope = FragmentScope.Inner)
     {
         // close other selection if different
         if (Selection.IsActive && (Selection.SnippetId != snippetId || Selection.Selector != puid))
             CancelSelectionEdit();
 
-        var page = CurrentPage(); if (page is null) return;
-        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return;
+        var page = CurrentPage();
+        if (page is null) return;
+        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
+        if (snip is null) return;
 
         var fragHtml = scope == FragmentScope.Outer
             ? await HtmlTransformService.ExtractFragmentOuterByPuidAsync(snip.Html ?? "", puid)
             : await HtmlTransformService.ExtractFragmentInnerByPuidAsync(snip.Html ?? "", puid);
 
-        Selection.IsActive  = true;
+        Selection.IsActive = true;
         Selection.SnippetId = snippetId;
         Selection.Selector = puid;
         Selection.Scope = scope;
         Selection.Html = await HtmlPuid.StripPuidsAsync(fragHtml);
-        
+
         SelectedSnippetId = snippetId;
         ContentVersion++;
         Notify();
     }
+
     public async Task SetSelectionScope(FragmentScope scope)
     {
         if (!Selection.IsActive || Selection.SnippetId == Guid.Empty || string.IsNullOrEmpty(Selection.Selector))
@@ -312,8 +408,8 @@ public void ClearDirty()
 
         await BeginFragmentEdit(Selection.SnippetId, Selection.Selector!, scope);
     }
-    
-    
+
+
     // Services/PutDocState.cs
     public void CancelSelectionEdit()
     {
@@ -438,7 +534,7 @@ public void ClearDirty()
         Notify();
         return page.Id;
     }
-    
+
     public async Task<Guid> AddSnippetToPage(Guid pageId, string html)
     {
         if (!Doc.Pages.TryGetValue(pageId, out var page)) return Guid.Empty;

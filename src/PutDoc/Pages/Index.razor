@@ -176,9 +176,19 @@
      void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
      
      private bool _splittersInited;
+     private DotNetObjectReference<Index>? _selfRef;
+
+     [JSInvokable]
+    bool isDirtyOrFrozen() =>  State.IsDirty || State.IsFrozen();
 
      protected override async Task OnAfterRenderAsync(bool firstRender)
      {
+         if (firstRender)
+         {
+             _selfRef = DotNetObjectReference.Create(this);
+             await JS.InvokeVoidAsync("putdocNav.bindBeforeUnload", isDirtyOrFrozen());
+                 //(Func<bool>)(() => State.IsDirty || State.IsFrozen()));
+         }
          // The layout exists only after the doc/page is loaded.
          if (!_splittersInited && State.Doc is not null && (State.Doc.Collections?.Count ?? 0) > 0)
          {

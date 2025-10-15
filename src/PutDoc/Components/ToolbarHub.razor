@@ -120,6 +120,8 @@
         if (!Guid.TryParse(snippetIdStr, out var snippetId))
             return new { status = "error", message = "bad snippetId" };
 
+        if (!await State.EnsureClearForTextChangeInternalAsync()) return new { status = "ok" };
+
         var scope = kind == "fragment-outer"
             ? PutDocState.FragmentScope.Outer
             : PutDocState.FragmentScope.Inner;
@@ -183,6 +185,8 @@
         // Auto-acquire for edit actions
         if (action is "edit-inner" or "edit-outer")
         {
+            if (!await State.EnsureClearForTextChangeInternalAsync()) return new { status = "ok" };
+
             var kind = action == "edit-outer" ? "fragment-outer" : "fragment-inner";
             var acquire = AcquireForEdit(kind, puid, snippetIdStr, force: false);
             if ((acquire as dynamic).status != "granted" && (acquire as dynamic).status != "stolen")

@@ -68,7 +68,7 @@ else { <em>Missing root collection.</em> }
                                     @(up_dn[_menuOpenFor == pid])
                                 </button>
                                 <button type="button" class="page-link @(active ? "active" : null)"
-                                        @onclick="() => State.SelectPage(pid)">
+                                        @onclick="() => State.TrySelectPageAsync(pid)">
                                     📄 @p.Title
                                 </button>
                             </div>

@@ -99,12 +99,16 @@ else
         };
 
         await State.SetSnippetHtml((snip.Html ?? "") + "\n" + add, isRawFromEditor: false);
+        
         State.SelectSnippet(snippetId);
     }
 
     // Acquire a snippet lock (per window) before selecting
     async Task EditSnippet(Guid id)
     {
+        
+        if (!await State.EnsureClearForTextChangeInternalAsync()) return;
+
         try
         {
             // (Optional) release any previous lock first to be courteous

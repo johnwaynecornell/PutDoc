@@ -99,6 +99,35 @@
     }
 }
 
+<style>
+.pd-modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.25);
+}
+.pd-modal {
+  position: fixed; left: 50%; top: 25%;
+  transform: translateX(-50%);
+  min-width: 22rem; max-width: 90vw;
+  background: #fff; border: 1px solid #ccd; border-radius: .5rem;
+  padding: .85rem;
+  box-shadow: 0 10px 28px rgba(0,0,0,.18), 0 6px 10px rgba(0,0,0,.12);
+}
+</style>
+
+
+@if (_showConfirm)
+{
+    <div class="pd-modal-backdrop" @onclick="ConfirmCancel"></div>
+    <div class="pd-modal" role="dialog" aria-modal="true" aria-labelledby="pdModalTitle">
+        <h3 id="pdModalTitle" style="margin:0 0 .5rem 0;">Unsaved changes</h3>
+        <p style="margin:.25rem 0 1rem 0;">@_confirmMessage</p>
+        <div style="display:flex; gap:.5rem; justify-content:flex-end;">
+            <button type="button" class="btn" @onclick="ConfirmCancel">Cancel</button>
+            <button type="button" class="btn" @onclick="ConfirmDiscard">Discard</button>
+            <button type="button" class="btn primary" @onclick="ConfirmSave" disabled="@_isFrozen">Save</button>
+        </div>
+    </div>
+}
+
 <div style="font-size:.8rem; color:#666; margin-top:.5rem;">
     @_statusText • Saved through AngleSoft filter.
 </div>
@@ -220,7 +249,24 @@
     {
         State.Changed += OnStateChanged;
         State.CheckpointRequested += OnCheckpointRequested;   // <—
+        State.SaveRequested          += OnSaveRequested;
+        State.ContextChangeRequested += OnContextChangeRequestedAsync;
+        // Hand the frozen flag to State for centralized checks
+        State.IsFrozen = () => _isFrozen;
+        // In HtmlEditor.razor
+        State.ClearFrozen = () =>
+        {
+            // Invalidate any in-flight SaveAsync and coalesced debounces
+            _saveEpoch++;
+            _debounce?.Stop();
 
+            _pendingSave = false;   // don’t flush a queued save from pre-thaw
+            _isSaving    = false;   // UI unstuck
+            _isFrozen    = false;   // thaw
+
+            _saveState = SaveState.Saved; // neutral visual state (will update if we SaveNow)
+            StateHasChanged();
+        };
         _ = SyncFromStateAsync(force: true);
     }
 
@@ -228,6 +274,8 @@
 
     private async Task ToggleScope()
     {
+        if (!await State.EnsureClearForTextChangeInternalAsync()) return;
+
         _fragScope = (_fragScope == PutDocState.FragmentScope.Inner)
             ? PutDocState.FragmentScope.Outer
             : PutDocState.FragmentScope.Inner;
@@ -479,6 +527,60 @@
             await JS.InvokeVoidAsync("putdocText.setSel", _ta, latest.Start, latest.End);
         }
     }
+    
+    private void OnSaveRequested()
+    {
+        // Checkpoint-first is already in SaveNow(); respect Freeze (your SaveNow has the guard)
+        _ = InvokeAsync(SaveNow);
+    }
+
+    private TaskCompletionSource<PutDocState.ContextChangeDecision>? _confirmTcs;
+    private bool _showConfirm;
+    private string _confirmMessage = "You have unsaved changes. What would you like to do?";
+
+// This is invoked by PutDocState.EnsureClearForTextChangeAsync()
+    private Task<PutDocState.ContextChangeDecision> OnContextChangeRequestedAsync()
+    {
+        // If nothing to prompt (edge cases), allow proceed
+        if (!_isFrozen && !State.IsDirty)
+            return Task.FromResult(PutDocState.ContextChangeDecision.Proceed);
+
+        _confirmTcs = new TaskCompletionSource<PutDocState.ContextChangeDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _showConfirm = true;
+        StateHasChanged();
+        return _confirmTcs.Task;
+    }
+
+// Button actions used by the modal UI:
+    private void ConfirmCancel()
+    {
+        _showConfirm = false;
+        _confirmTcs?.TrySetResult(PutDocState.ContextChangeDecision.Cancel);
+    }
+    private async void ConfirmSave()
+    {
+        _showConfirm = false;
+        if (_isFrozen)
+            State.ClearFrozen?.Invoke();
+
+        // Stop debounce and save immediately
+        _debounce?.Stop();
+        await SaveNow();
+        
+        _confirmTcs?.TrySetResult(PutDocState.ContextChangeDecision.Save);
+    }
+
+    private void ConfirmDiscard()
+    {
+        _showConfirm = false;
+        if (_isFrozen)
+            State.ClearFrozen?.Invoke();
+
+        State.ClearDirty();
+
+        _confirmTcs?.TrySetResult(PutDocState.ContextChangeDecision.Discard);
+    }
+
 
     // ---- INSERTS ----
     private async Task InsertTpl(string kind)
@@ -597,7 +699,9 @@
     {
         State.Changed -= OnStateChanged;
         State.CheckpointRequested -= OnCheckpointRequested;   // <—
-
+        State.SaveRequested          -= OnSaveRequested;
+        State.ContextChangeRequested -= OnContextChangeRequestedAsync;
+        
         if (_debounce is not null)
         {
             _debounce.Stop();

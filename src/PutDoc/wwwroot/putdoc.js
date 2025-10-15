@@ -609,6 +609,7 @@
             });
         }
 
+        
         class PutDocToolbar extends HTMLElement {
             connectedCallback() {
                 if (this._wired) return;
@@ -621,20 +622,23 @@
                 this.classList.add('pd-toolbar-host');
                 this.innerHTML = `
       <span class="pd-inline-toolbar" data-open="false" aria-expanded="false" aria-haspopup="menu">
-        <button type="button" class="btn drop pd-gear" title="Actions" aria-label="Open toolbar">⋯</button>
+        <button type="button" class="btn drop pd-gear" title="Actions" aria-label="Open toolbar">▼</button>
         <div class="pd-toolbar-panel-slot"></div>
       </span>
     `;
-
                 const shell = this.querySelector('.pd-inline-toolbar');
                 const gear  = this.querySelector('.pd-gear');
                 const slot  = this.querySelector('.pd-toolbar-panel-slot');
 
                 gear?.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    const isOpen = shell?.dataset.open === 'true';
+                    const isOpen = shell?.dataset.open === 'true';                     
 
                     if (!isOpen) {
+                        requestAnimationFrame(() => {
+                            gear.innerText = "▲";
+                        });
+                        
                         // Always refetch fresh menu HTML — no caching
                         if (!__hub) return;
                         const html = await __hub.invokeMethodAsync('GetMenuHtml', kind, puid, snippetId);
@@ -647,6 +651,10 @@
                         }
                         openThis(this);
                     } else {
+                        requestAnimationFrame(() => {
+                            gear.innerText = "▼";
+                        });
+
                         closeCurrent(true);
                     }
                 });
@@ -762,6 +770,23 @@
             return res;
         } catch (e) { return { status: "error", message: String(e) }; }
     };
+
+    window.putdocNav = {
+        bindBeforeUnload(getDirtyOrFrozen) {
+            const h = (e) => {
+                try {
+                    if (getDirtyOrFrozen()) {
+                        e.preventDefault();
+                        e.returnValue = ''; // required for Chrome
+                        return '';
+                    }
+                } catch {}
+            };
+            window.addEventListener('beforeunload', h);
+            return () => window.removeEventListener('beforeunload', h);
+        }
+    };
+
 
 
 })();
