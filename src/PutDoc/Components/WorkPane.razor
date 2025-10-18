@@ -158,7 +158,7 @@ else
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Enhance & observe each snippet by its DOM id (idempotent on JS side)
-        var page = State.CurrentPage(); if (page is null) return;
+        var page = State.CurrentPage(); if (page is null);
         foreach (var snip in page.Snippets)
         {
             var domId = $"snip-{snip.Id}";

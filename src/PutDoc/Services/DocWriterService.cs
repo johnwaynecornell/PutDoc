@@ -31,6 +31,7 @@ public sealed class DocWriterService
                         WriterChanged?.Invoke(docId, next);
                         if (force && !expired && cur.SessionId != sessionId) return (WriterResult.Stolen, cur);
                         if (cur.SessionId == sessionId) return (WriterResult.AlreadyYou, cur);
+                        
                         return (WriterResult.Granted, cur);
                     }
                     continue;

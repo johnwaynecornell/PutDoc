@@ -10,7 +10,7 @@
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender && !_hasNavigated)
+        if (!_hasNavigated)
         {
             _hasNavigated = true;
             Nav.NavigateTo("/doc/", replace: true);

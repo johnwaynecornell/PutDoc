@@ -34,7 +34,7 @@
         State.Changed += StateOnChanged;
         Writers.WriterChanged += WritersOnWriterChanged;
         
-        await AcquireDocWriter(false);
+        //await AcquireDocWriter(false);
     }
 
     private void WritersOnWriterChanged(Guid docId, WriterInfo? writerInfo)

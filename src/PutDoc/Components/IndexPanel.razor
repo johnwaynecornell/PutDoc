@@ -105,6 +105,24 @@ else { <em>Missing root collection.</em> }
         if (string.IsNullOrWhiteSpace(html)) return;
         await State.AddSnippetToPage(pageId, html);   // selects new snippet & updates editor via Notify()
     }
+
+    protected override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) State.Changed += StateOnChanged;
+        return base.OnAfterRenderAsync(firstRender);
+    }
+
+    private void StateOnChanged()
+    {
+        _ = InvokeAsync(() => StateHasChanged());
+    }
+
+    public void Dispose()
+    {
+        State.Changed -= StateOnChanged;
+    }
+
+
 }
 
 <style>

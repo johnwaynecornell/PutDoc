@@ -1,5 +1,7 @@
 @page "/docs"
+@rendermode RenderMode.InteractiveServer
 
+@using System.Text.Json
 @using Microsoft.AspNetCore.Components.Forms
 @inject IDocCatalogService Catalog
 @inject NavigationManager Nav
@@ -8,7 +10,7 @@
 <h3 class="font-semibold mb-2">PutDoc Library</h3>
 
 <div class="catalog-actions" style="display:flex; gap:.5rem; align-items:center; margin-bottom:.5rem;">
-  <button type="button" class="btn primary" @onclick="NewDoc">New PutDoc</button>
+  <button type="button" class="btn primary" @onclick="() => NewDoc()">New PutDoc</button>
   <label class="btn" style="position:relative; overflow:hidden;">
     Import…
     <InputFile OnChange="ImportSelected" accept=".json,.txt,application/json" style="position:absolute; inset:0; opacity:0; cursor:pointer;" />
@@ -74,7 +76,20 @@ else
   {
     try
     {
-      var id = await Catalog.CreateAsync("Untitled");
+      var rootCollection = new Collection { Title = "Index" };
+      var firstPage = new Page { Title = "Welcome", Snippets = new() { new Snippet { Html = "<h2>Welcome to PutDoc</h2><p>Edit me in the HTML Editor.</p>" } } };
+
+      var doc = new PutDocFile
+      {
+        RootCollectionId = rootCollection.Id,
+        Collections = { [rootCollection.Id] = rootCollection },
+        Pages = { [firstPage.Id] = firstPage }
+      };
+      rootCollection.PageIds.Add(firstPage.Id);
+
+      var id = await Catalog.CreateAsync("Untitled", initialJson: JsonSerializer.Serialize(doc));
+      
+      //await Catalog.CreateAsync("Untitled");
       Nav.NavigateTo($"/doc/{id}");
     }
     catch (Exception ex) { _error = ex.Message; }

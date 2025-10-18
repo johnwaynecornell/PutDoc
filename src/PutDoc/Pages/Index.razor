@@ -145,27 +145,101 @@
      
      [Parameter] public Guid? docId { get; set; }
 
+     // Track last applied + last requested to avoid duplicate loads
+     private Guid? _lastAppliedDocId;
+     private Guid? _lastRequestedDocId;
+
+     // Coalesce duplicate in-flight loads of the same doc
+     private Task? _inFlightLoad;
+     private Guid? _inFlightDocId;
+
+     private bool _navigatedToDefault;
+
+     
+     
+     
+     
+     /*
+     
      protected override async Task OnParametersSetAsync()
      {
          if (docId is Guid id)
          {
-             if (State.CurrentDocId != id)
-                 try
-                 {
-                     await State.LoadAsync(id);
-                     await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', false)");
-                     
-                 }
-                catch (Exception ex) { loadError = ex.Message; }
+             if (_lastAppliedDocId == id) return;      // idempotent
+             
+             if (_inFlightLoad is not null && _inFlightDocId == id)
+             {
+                 await _inFlightLoad;              // just await the existing one
+                 return;
+             }
+             
+             string lastLoadedDocId;
+             if (_lastAppliedDocId == null) lastLoadedDocId = "NULL";
+             else lastLoadedDocId = _lastAppliedDocId.ToString();
+             Console.WriteLine($"[Index] OnParametersSet: docId={docId} lastApplied={lastLoadedDocId}");
 
+             _lastRequestedDocId = id;
+             _inFlightDocId = id;
+             var loadTask = State.LoadAsync(id);
+             _inFlightLoad = loadTask;
+
+             try
+             {
+                 await loadTask;
+                 _lastAppliedDocId = id;           // commit after success
+             }
+             catch
+             {
+                 // If it failed, clear the "requested" so a retry isn't blocked
+                 if (_lastRequestedDocId == id) _lastRequestedDocId = null;
+                 throw;
+             }
+             finally
+             {
+                 // Clear coalescer if this is still the same task
+                 if (_inFlightLoad == loadTask) { _inFlightLoad = null; _inFlightDocId = null; }
+             }
+             
          }
          else
          {
-             var _id = await State.LoadDefaultAsync();
-             Nav.NavigateTo($"/doc/{_id}", replace: true);
-         }
-     }
+             if (_navigatedToDefault) return;
+             _navigatedToDefault = true;
 
+             var defId = await State.GetDefaultDocIdAsync();
+             Nav.NavigateTo($"/doc/{defId}", replace: true);
+         }
+     } */
+
+     protected override async Task OnParametersSetAsync()
+     {
+         if (docId is Guid id)
+         {
+             string lastLoadedDocId;
+             if (_lastAppliedDocId == null) lastLoadedDocId = "NULL";
+             else lastLoadedDocId = _lastAppliedDocId.ToString();
+             Console.WriteLine($"[Index] OnParametersSet: docId={docId} lastApplied={lastLoadedDocId}");
+
+             // One line – coalesces duplicate calls within the circuit
+             await State.EnsureLoadedAsync(id);
+             await InvokeAsync(StateHasChanged);
+             //State.Notify();
+             
+             // After successful load, mark applied
+             _lastAppliedDocId = id;
+             Console.WriteLine($"[index] docId={docId} (Applied={_lastAppliedDocId?.ToString() ?? "NULL"})");
+
+             return;
+         }
+
+         // No id in route → compute default id and navigate (don’t load it here)
+         if (_navigatedToDefault) return;
+         _navigatedToDefault = true;
+
+         var defId = await State.GetDefaultDocIdAsync();
+         Nav.NavigateTo($"/doc/{defId}", replace: true);
+     }
+     
      protected override async Task OnInitializedAsync()
      {
          State.Changed += OnStateChanged;
@@ -179,8 +253,10 @@
      private DotNetObjectReference<Index>? _selfRef;
 
      [JSInvokable]
-    bool isDirtyOrFrozen() =>  State.IsDirty || State.IsFrozen();
+    bool isDirtyOrFrozen() =>  State.IsDirty || (State.IsFrozen != null ? State.IsFrozen() : false);
 
+    public Guid? _writerAcquiredFor = null;
+    
      protected override async Task OnAfterRenderAsync(bool firstRender)
      {
          if (firstRender)
@@ -189,6 +265,18 @@
              await JS.InvokeVoidAsync("putdocNav.bindBeforeUnload", isDirtyOrFrozen());
                  //(Func<bool>)(() => State.IsDirty || State.IsFrozen()));
          }
+         
+         // Acquire doc writer once per loaded doc, after it’s on screen
+         if (_lastAppliedDocId is Guid id && _writerAcquiredFor != id)
+         {
+             _writerAcquiredFor = id;
+             try
+             {
+                 await JS.InvokeVoidAsync("putdocAcquireWriter");
+             }
+             catch { /* swallow – not fatal */ }
+         }
+         
          // The layout exists only after the doc/page is loaded.
          if (!_splittersInited && State.Doc is not null && (State.Doc.Collections?.Count ?? 0) > 0)
          {

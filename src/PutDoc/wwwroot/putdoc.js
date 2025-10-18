@@ -730,6 +730,7 @@
                 if (!window.__pdBlazorStarted) {
                     window.__pdBlazorStarted = true;
                     await Blazor.start();  // <-- critical when autostart="false"
+                    console.log('Blazor.start succeeded');
                 }
             } catch (e) {
                 console.error('Blazor.start failed', e);
@@ -784,6 +785,17 @@
             };
             window.addEventListener('beforeunload', h);
             return () => window.removeEventListener('beforeunload', h);
+        }
+    };
+
+    window.putdocAcquireWriter = function () {
+        try {
+            const hub = window.putdocEnh && window.putdocEnh.getHub ? window.putdocEnh.getHub() : null;
+            if (hub && hub.invokeMethodAsync) {
+                return hub.invokeMethodAsync('AcquireDocWriter', false);
+            }
+        } catch (e) {
+            console.warn('AcquireDocWriter failed', e);
         }
     };
 

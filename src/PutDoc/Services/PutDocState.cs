@@ -34,7 +34,7 @@ public class PutDocState
         _js = js;
     }
 
-    public bool IsReadOnly { get; private set; }
+    public bool IsReadOnly { get; private set; } = true;
 
     public void SetReadOnly(bool ro)
     {
@@ -72,8 +72,14 @@ public class PutDocState
 
     // helper you can call from anywhere (ToolbarHub, etc.)
     public void RequestCheckpoint(string label) => CheckpointRequested?.Invoke(label);
-    
-    public enum ContextChangeDecision { Proceed, Cancel, Save, Discard }
+
+    public enum ContextChangeDecision
+    {
+        Proceed,
+        Cancel,
+        Save,
+        Discard
+    }
 
 // Raised when someone wants to change context (page/snippet) but we may be Frozen/Dirty.
 // Exactly ONE listener (the active HtmlEditor) should handle and return a decision.
@@ -88,22 +94,29 @@ public class PutDocState
 
 // Internal flag to bypass the guard for system flows.
     private int _suppressGuardDepth = 0;
+
     public IDisposable SuppressGuardScope()
     {
         _suppressGuardDepth++;
         return new Scope(() => _suppressGuardDepth--);
     }
-    private sealed class Scope : IDisposable { private readonly Action _on; public Scope(Action on) => _on = on; public void Dispose() => _on(); }
+
+    private sealed class Scope : IDisposable
+    {
+        private readonly Action _on;
+        public Scope(Action on) => _on = on;
+        public void Dispose() => _on();
+    }
 
     public async Task<bool> EnsureClearForTextChangeInternalAsync()
     {
-        if (_suppressGuardDepth > 0) return true;                 // internal/system: skip guard
-        
+        if (_suppressGuardDepth > 0) return true; // internal/system: skip guard
+
         if (!(IsDirty || (IsFrozen?.Invoke() ?? false))) return true;
 
-        if (ContextChangeRequested is null) return false;          // no UI to ask → block
+        if (ContextChangeRequested is null) return false; // no UI to ask → block
 
-        var decision = (!IsDirty) ? ContextChangeDecision.Discard: await ContextChangeRequested.Invoke();
+        var decision = (!IsDirty) ? ContextChangeDecision.Discard : await ContextChangeRequested.Invoke();
 
         switch (decision)
         {
@@ -115,13 +128,13 @@ public class PutDocState
 
             case ContextChangeDecision.Save:
                 // If editor is frozen, treat like cancel (your modal already disables Save in that case).
-                    return !IsDirty;                               // only proceed if save cleared dirty
+                return !IsDirty; // only proceed if save cleared dirty
             case ContextChangeDecision.Proceed:
             default:
                 return true;
         }
     }
-    
+
     public async Task<bool> TryLoadDocumentAsync(Guid docId)
     {
         if (!await EnsureClearForTextChangeInternalAsync()) return false;
@@ -146,11 +159,11 @@ public class PutDocState
 // Examples of “core” versions that don’t trigger prompts:
     private async Task LoadDocumentCoreAsync(Guid docId)
     {
-        using (SuppressGuardScope()) { this.LoadAsync(docId) // load file, set Doc, etc. 
-        ClearDirty(); } 
-        
+        using (SuppressGuardScope()) { this.LoadAsync(docId) // load file, set Doc, etc.
+        ClearDirty(); }
+
     }*/
-    
+
     public async Task<bool> RenameAsync(string newName)
     {
         if (Meta is null) return false;
@@ -210,39 +223,269 @@ public class PutDocState
         return memoryStream;
     }
 
+    public async Task<Guid> GetDefaultDocIdAsync()
+    {
+        // Whatever your catalog logic is
+        return await _catalog.EnsureDefaultAsync("Untitled");
+    }
+
+    // PutDocState.cs
+    private Task? _inFlightLoad;
+    private Guid? _inFlightDocId;
+
+    public Task EnsureLoadedAsync(Guid id)
+    {
+        // If already loaded, nothing to do
+        if (Meta?.Id == id && Doc is not null) return Task.CompletedTask;
+
+        Console.WriteLine($"[state] ensure {id} inFlightId={_inFlightDocId} hasTask={_inFlightLoad is not null}");
+
+        // If a load for this id is already running, await it
+        if (_inFlightLoad is not null && _inFlightDocId == id)
+            return _inFlightLoad;
+
+        // Start a new load and remember it
+        _inFlightDocId = id;
+        var task = LoadAsync(id);
+        _inFlightLoad = task.ContinueWith(t =>
+        {
+            // Clear only if we’re still the same task
+            if (ReferenceEquals(_inFlightLoad, task))
+            {
+                _inFlightLoad = null;
+                _inFlightDocId = null;
+            }
+        }, TaskScheduler.Default);
+
+        return task;
+    }
+
+
+// Keep LoadDefaultAsync if other callers need it, but avoid using it in routing.
+    public async Task<Guid> LoadDefaultAsync()
+    {
+        var id = await GetDefaultDocIdAsync();
+        await LoadAsync(id);
+        return id;
+    }
+/*
     public async Task<Guid> LoadDefaultAsync()
     {
         var id = await _catalog.EnsureDefaultAsync("Untitled");
         await LoadAsync(id);
         return id;
+    } */
+
+    
+    // PutDocState.cs
+    private long _loadEpoch = 0; // increments per load request
+    private long _appliedEpoch = 0; // last epoch that successfully applied
+    private CancellationTokenSource? _loadCts;
+
+    public enum RecoveryStrategy
+    {
+        RetainIds,
+        RekeyNewIds
     }
 
+    public static class PutDocNormalize
+    {
+        public static void NormalizeDocument(PutDocFile doc,
+            RecoveryStrategy strategy = RecoveryStrategy.RetainIds,
+            string recoveredSuffix = " (recovered)")
+        {
+            if (doc is null) return;
+
+            // Ensure root exists (no reorder)
+            if (!doc.Collections.ContainsKey(doc.RootCollectionId) && doc.Collections.Count > 0)
+                doc.RootCollectionId = doc.Collections.Keys.First();
+
+            // Helper: make a title for recovered nodes
+            static string NameFor(string kind, Guid id, string suf)
+                => $"{kind} {id.ToString()[..8]}{suf}";
+
+            // Fix each collection’s lists in place (order preserved)
+            foreach (var c in doc.Collections.Values)
+            {
+                // --- PageIds: drop dupes (keep first), recover missing ---
+                if (c.PageIds is { Count: > 0 })
+                {
+                    var seen = new HashSet<Guid>();
+                    for (int i = 0; i < c.PageIds.Count; i++)
+                    {
+                        var pid = c.PageIds[i];
+
+                        // de-dupe (preserve first occurrence)
+                        if (!seen.Add(pid))
+                        {
+                            c.PageIds.RemoveAt(i);
+                            i--;
+                            continue;
+                        }
+
+                        // recover missing page
+                        if (!doc.Pages.ContainsKey(pid))
+                        {
+                            var newId = (strategy == RecoveryStrategy.RetainIds) ? pid : Guid.NewGuid();
+
+                            if (strategy == RecoveryStrategy.RekeyNewIds)
+                                c.PageIds[i] = newId; // keep index, swap id
+
+                            // create stub page only once
+                            if (!doc.Pages.ContainsKey(newId))
+                            {
+                                doc.Pages[newId] = new Page
+                                {
+                                    Id = newId,
+                                    Title = NameFor("Page", newId, recoveredSuffix),
+                                    Snippets = new List<Snippet>() // empty, valid page
+                                };
+                            }
+                        }
+                    }
+                }
+
+                // --- ChildCollectionIds: drop dupes, recover missing ---
+                if (c.ChildCollectionIds is { Count: > 0 })
+                {
+                    var seen = new HashSet<Guid>();
+                    for (int i = 0; i < c.ChildCollectionIds.Count; i++)
+                    {
+                        var cid = c.ChildCollectionIds[i];
+
+                        if (!seen.Add(cid))
+                        {
+                            c.ChildCollectionIds.RemoveAt(i);
+                            i--;
+                            continue;
+                        }
+
+                        if (!doc.Collections.ContainsKey(cid))
+                        {
+                            var newId = (strategy == RecoveryStrategy.RetainIds) ? cid : Guid.NewGuid();
+
+                            if (strategy == RecoveryStrategy.RekeyNewIds)
+                                c.ChildCollectionIds[i] = newId;
+
+                            if (!doc.Collections.ContainsKey(newId))
+                            {
+                                doc.Collections[newId] = new Collection
+                                {
+                                    Id = newId,
+                                    Title = NameFor("Collection", newId, recoveredSuffix),
+                                    PageIds = new List<Guid>(),
+                                    ChildCollectionIds = new List<Guid>()
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Optional: handle orphan pages (present but not referenced anywhere)
+            // Leave as-is if you allow loose pages; or place them under a dedicated
+            // "Recovered" collection without touching existing indices.
+
+            // NB: No sorting anywhere; all lists remain in authored order.
+        }
+    }
+
+    private void LogDocAnomalies(PutDocFile doc)
+    {
+        foreach (var c in doc.Collections.Values)
+        {
+            if (c.PageIds is null) continue;
+            var missing = c.PageIds.Where(pid => !doc.Pages.ContainsKey(pid)).ToList();
+            if (missing.Count > 0)
+                Console.WriteLine($"[validate] Collection {c.Title} has {missing.Count} missing PageIds");
+        }
+    }
     public async Task LoadAsync(Guid id)
     {
-        var meta = await _catalog.GetAsync(id) ?? throw new FileNotFoundException($"Doc {id} not found");
-        var payload = await _catalog.LoadDocumentAsync(id) ?? ("{}", meta.Version);
 
-        // parse payload.json -> PutDocFile
+        // (Optional) move the epoch bump to the very start to be extra explicit
+        Interlocked.Increment(ref _loadEpoch);
+        var myEpoch = _loadEpoch;
 
-        JsonSerializerOptions _json = new()
+        Console.WriteLine($"[State] Load start id={id} myEpoch={myEpoch} latest={Volatile.Read(ref _loadEpoch)}");
+
+
+        _loadCts?.Cancel();
+        _loadCts = new CancellationTokenSource();
+        var ct = _loadCts.Token;
+
+        try
         {
-            WriteIndented = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
+            var meta = await _catalog.GetAsync(id)
+                       ?? throw new FileNotFoundException($"Doc {id} not found");
 
-        var fs = ConvertStringToStream(payload.json);
-        Doc = await JsonSerializer.DeserializeAsync<PutDocFile>(fs, _json);
+            // Load payload (use ct if your API allows)
+            var payload = await _catalog.LoadDocumentAsync(id /*, ct */) ?? ("{}", meta.Version);
+            if (ct.IsCancellationRequested || myEpoch != Volatile.Read(ref _loadEpoch))
+            {
+                Console.WriteLine($"[State] Load stale id={id} myEpoch={myEpoch} — discard");
+                return;
+            }
 
-        foreach (var p in Doc.Pages.Values)
-            for (int i = 0; i < p.Snippets.Count; i++)
-                p.Snippets[i].Html = await HtmlPuid.EnsurePuidsAsync(p.Snippets[i].Html ?? "");
+            // Discard stale finishes
+            if (myEpoch != _loadEpoch) return;
 
-        SelectedPageId ??= Doc.Pages.Keys.FirstOrDefault();
-        SelectedSnippetId ??= CurrentPage()?.Snippets.FirstOrDefault()?.Id;
+            // Parse JSON
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
 
-        Meta = meta with { Version = payload.version };
-        Changed?.Invoke();
+            using var fs = ConvertStringToStream(payload.json);
+            var loadedDoc = await JsonSerializer.DeserializeAsync<PutDocFile>(fs, jsonOptions)
+                            ?? new PutDocFile();
+
+            LogDocAnomalies(loadedDoc);
+
+            PutDocNormalize.NormalizeDocument(loadedDoc);
+
+            // Ensure puids in all snippets
+            foreach (var p in loadedDoc.Pages.Values)
+            {
+                for (int i = 0; i < p.Snippets.Count; i++)
+                {
+                    p.Snippets[i].Html = await HtmlPuid.EnsurePuidsAsync(p.Snippets[i].Html ?? "");
+                }
+            }
+
+            // ---- Apply atomically to state (this is the only mutation point) ----
+            Doc = loadedDoc;
+            Meta = meta with { Version = payload.version };
+
+            // Reset selection for the new doc (don’t carry old ids forward)
+            SelectedPageId = Doc.Collections.TryGetValue(Doc.RootCollectionId, out var root) &&
+                             root.PageIds is { Count: > 0 } ? root.PageIds[0]
+                : Doc.Pages.Keys.FirstOrDefault();
+
+            SelectedSnippetId = (SelectedPageId is Guid pid && Doc.Pages.TryGetValue(pid, out var page) &&
+                                 page.Snippets.Count > 0)
+                ? page.Snippets[0].Id
+                : null;
+            //SelectedSnippetId = CurrentPage()?.Snippets.FirstOrDefault()?.Id;
+
+            _appliedEpoch = myEpoch;
+
+            // Mark clean and announce an EXTERNAL content change so listeners refresh
+            LastUpdateSource = UpdateSource.External; // ← make sure this property exists as in your editor logic
+            ContentVersion++; // ← bump the version so sync code sees a change
+            Console.WriteLine($"[State] Load APPLY id={id} myEpoch={myEpoch} cv={ContentVersion}");
+            IsDirty = false;
+            Notify();
+
+
+        }
+        catch (OperationCanceledException)
+        {
+            // ignored
+        }
     }
+
 
 // Call this from wherever you persist the whole document
     public async Task SaveWholeDocumentAsync()

@@ -20,62 +20,65 @@
 }
 
 
-<div style="background-color: #FDD; padding: .5rem; border-radius: .5rem; margin-bottom: .5rem; border: 1px solid #ECC;display:flex; gap:.5rem; align-items:center;">
+<div style="
+  background-color:#FDD; padding:.5rem; border-radius:.5rem; margin-bottom:.5rem;
+  border:1px solid #ECC; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;">
+
     <div class="palette">    
-    <button type="button" class="btn" @onclick='() => InsertTpl("card")'>+ slf-card</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
-    <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-    <button type="button" class="btn" @onclick='() => InsertTpl("table")'>+ table</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("list")'>+ list</button>
-    <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
-    <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-</div>
+        <button type="button" class="btn" @onclick='() => InsertTpl("card")'>+ slf-card</button>
+        <button type="button" class="btn" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
+        <button type="button" class="btn" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
+        <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+        <button type="button" class="btn" @onclick='() => InsertTpl("table")'>+ table</button>
+        <button type="button" class="btn" @onclick='() => InsertTpl("list")'>+ list</button>
+        <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
+        <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+    </div>
 
-<!-- Tag inserter + taggify -->
-<form class="tag-inserter palette"
-      @onsubmit="InsertTagFromUi" @onsubmit:preventDefault="true">
+    <!-- Tag inserter + taggify -->
+    <form class="tag-inserter palette"
+          @onsubmit="InsertTagFromUi" @onsubmit:preventDefault="true">
 
-  <input list="html-tag-suggestions"
-         class="tag-input"
-         placeholder='e.g., div  |  p class="note"  |  img src="" alt=""'
-         style="min-width:16rem; padding:.25rem .4rem; border:1px solid #ccc; border-radius:.375rem;"
-         @bind="_tagInput" @bind:event="oninput" />
+      <input list="html-tag-suggestions"
+             class="tag-input"
+             placeholder='e.g., div  |  p class="note"  |  img src="" alt=""'
+             style="min-width:16rem; padding:.25rem .4rem; border:1px solid #ccc; border-radius:.375rem;"
+             @bind="_tagInput" @bind:event="oninput" />
 
-  <datalist id="html-tag-suggestions">
-    @foreach (var t in EffectiveTagOptions)
-    {
-        <option value="@t" />
-    }
-  </datalist>
+      <datalist id="html-tag-suggestions">
+        @foreach (var t in EffectiveTagOptions)
+        {
+            <option value="@t" />
+        }
+      </datalist>
 
-  <button type="submit" class="btn">Insert tag</button>
-  <button type="button" class="btn" @onclick="TaggifySelectionFromUi" title="Wrap current selection with tag">Taggify</button>
-</form>
+      <button type="submit" class="btn">Insert tag</button>
+      <button type="button" class="btn" @onclick="TaggifySelectionFromUi" title="Wrap current selection with tag">Taggify</button>
+    </form>
 
-<!-- Save/Undo/Redo/Freeze row -->
-<div class="palette">
-  <button type="button" class="btn" @onclick="SaveNow" disabled="@(_isFrozen || State.IsReadOnly)">Save now</button>
-  <button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">
-      @("Undo" + (_canUndo && _undo[^1]?.Label is { } L ? $": {L}" : ""))
-  </button>
-  
-  <button type="button" class="btn" @onclick="Redo" disabled="@(!_canRedo)">Redo</button>
-  <button type="button" class="btn" @onclick="ToggleFreeze">
-    @(_isFrozen ? "Unfreeze (enable save)" : "Freeze (pause save)")
-  </button>
+    <!-- Save/Undo/Redo/Freeze row -->
+    <div class="palette">
+      <button type="button" class="btn" @onclick="SaveNow" disabled="@(_isFrozen || State.IsReadOnly)">Save now</button>
+      <button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">
+          @("Undo" + (_canUndo && _undo[^1]?.Label is { } L ? $": {L}" : ""))
+      </button>
+      
+      <button type="button" class="btn" @onclick="Redo" disabled="@(!_canRedo)">Redo</button>
+      <button type="button" class="btn" @onclick="ToggleFreeze">
+        @(_isFrozen ? "Unfreeze (enable save)" : "Freeze (pause save)")
+      </button>
 
-  @if (_isFrozen)
-  {
-    <span style="font-size:.85rem; color:#b56;">Frozen — changes won’t be saved.</span>
-  }
+      @if (_isFrozen)
+      {
+        <span style="font-size:.85rem; color:#b56;">Frozen — changes won’t be saved.</span>
+      }
 
-  @if (State.IsDirty)
-  {
-    <span title="Unsaved changes" style="width:.5rem;height:.5rem;border-radius:50%;
-          background:#e67; display:inline-block; margin-left:.3rem;"></span>
-  }
-</div>
+      @if (State.IsDirty)
+      {
+        <span title="Unsaved changes" style="width:.5rem;height:.5rem;border-radius:50%;
+              background:#e67; display:inline-block; margin-left:.3rem;"></span>
+      }
+    </div>
 </div>
 <textarea @ref="_ta"
           class="w-full"
