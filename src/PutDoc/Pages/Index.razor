@@ -3,11 +3,17 @@
 @inject PutDoc.Services.PutDocState State
 @inject PutDoc.Services.DocWriterService Writers
 @inject NavigationManager Nav
+@inject DebugMutators Debug
+@inject Microsoft.Extensions.Hosting.IHostEnvironment Env
 
+@using System.Text.Json
 @using PutDoc.Components
 @using Microsoft.AspNetCore.Components.Web   
 
 @inject IJSRuntime JS
+
+@implements IDisposable
+
 
 <ToolbarHub/>
 
@@ -63,13 +69,39 @@
                 
                 
             </div>
-        
         </div>
+        
+        <RepairBanner />
+        
+        @if (Env.IsDevelopment() && State.Doc is not null)
+        {
+            <div class="menu-popover" style="margin:.5rem 0;">
+                <strong>Debug Mutators</strong>
+                <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.35rem;">
+                    <button class="btn" @onclick="() => Debug.AddMissingPageRef(State.Doc.RootCollectionId)">+ Missing page ref</button>
+                    <button class="btn" @onclick="() => Debug.DuplicateFirstPageRef(State.Doc.RootCollectionId)">Duplicate first page ref</button>
+                    <button class="btn" @onclick="() => RemoveFirstPageObject()">Remove first page object</button>
+                    <button class="btn" @onclick="() => Debug.AddMissingChildCollectionRef(State.Doc.RootCollectionId)">+ Missing child collection</button>
+                    <button class="btn" @onclick="() => Debug.ShufflePages(State.Doc.RootCollectionId)">Shuffle page order</button>
+                    <button class="btn" @onclick="() => Debug.AddOrphanPage()">Add orphan page</button>
+                </div>
+            </div>
+        }
+
+@code {
+    private void RemoveFirstPageObject()
+    {
+        var root = State.Doc.Collections.TryGetValue(State.Doc.RootCollectionId, out var c) ? c : null;
+        var first = root?.PageIds?.FirstOrDefault() ?? Guid.Empty;
+        if (first != Guid.Empty) Debug.RemovePageObjectKeepRefs(first);
+    }
+}
+
     
     
         <div class="putdoc-layout" id="putdocLayout" @ref="_layoutRef"
              style="--index-w: 420px; --editor-h: 320px;">
-        
+
             <aside class="index resizable-x">
                 <IndexPanel/>
             </aside>
@@ -105,9 +137,9 @@
     
     void OnWriterChanged(Guid docId, PutDoc.Services.WriterInfo? info)
     {
-        if (State.CurrentDocId != docId) return;
+        //if (State.CurrentDocId != docId) return;
         // We rely on ToolbarHub to toggle State.IsReadOnly; this just forces a repaint.
-        InvokeAsync(StateHasChanged);
+        _ = InvokeAsync(StateHasChanged);
     }
 
     async Task TakeControl()
@@ -115,14 +147,16 @@
         // Call the hub so it uses the per-window sessionId you already wired.
         try
         {
-            await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', true)");
+            await JS.InvokeAsync<JsonElement>("putdocPresence.acquireWriter", true);
+            //await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', true)");
         }
         catch { /* noop */ }
     }
 
     async Task ReleaseControl()
     {
-        try { await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('ReleaseDocWriter')"); }
+        try { await JS.InvokeVoidAsync("putdocPresence.releaseWriter"); }
+        //try { await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('ReleaseDocWriter')"); }
         catch { /* noop */ }
     }
     
@@ -134,6 +168,8 @@
 
     public void Dispose()
     {
+        _ = InvokeAsync(async () => JS.InvokeVoidAsync("putdocPresence.releaseWriter"));
+        
         State.Changed -= OnStateChanged;
         Writers.WriterChanged -= OnWriterChanged;
     }
@@ -222,11 +258,15 @@
 
              // One line – coalesces duplicate calls within the circuit
              await State.EnsureLoadedAsync(id);
-             await InvokeAsync(StateHasChanged);
-             //State.Notify();
-             
-             // After successful load, mark applied
+                 
+                 
+                 //await InvokeAsync(StateHasChanged);
+                 //State.Notify();
+
+                 // After successful load, mark applied
              _lastAppliedDocId = id;
+             
+             State.Notify();
              Console.WriteLine($"[index] docId={docId} (Applied={_lastAppliedDocId?.ToString() ?? "NULL"})");
 
              return;
@@ -259,6 +299,21 @@
     
      protected override async Task OnAfterRenderAsync(bool firstRender)
      {
+         // Acquire doc writer once per loaded doc, after it’s on screen
+         if (_lastAppliedDocId is Guid id && _writerAcquiredFor != id)
+         {
+             _writerAcquiredFor = id;
+             try
+             {
+                 var v = await JS.InvokeAsync<JsonElement>("putdocAcquireWriter");
+                 var isWriter = v.ValueKind == JsonValueKind.Object
+                                && v.TryGetProperty("status", out var s)
+                                && s.GetString() == "writer";
+             }
+             catch { /* swallow – not fatal */ }
+         }
+         
+         if (!firstRender) return;
          if (firstRender)
          {
              _selfRef = DotNetObjectReference.Create(this);
@@ -266,16 +321,7 @@
                  //(Func<bool>)(() => State.IsDirty || State.IsFrozen()));
          }
          
-         // Acquire doc writer once per loaded doc, after it’s on screen
-         if (_lastAppliedDocId is Guid id && _writerAcquiredFor != id)
-         {
-             _writerAcquiredFor = id;
-             try
-             {
-                 await JS.InvokeVoidAsync("putdocAcquireWriter");
-             }
-             catch { /* swallow – not fatal */ }
-         }
+         
          
          // The layout exists only after the doc/page is loaded.
          if (!_splittersInited && State.Doc is not null && (State.Doc.Collections?.Count ?? 0) > 0)

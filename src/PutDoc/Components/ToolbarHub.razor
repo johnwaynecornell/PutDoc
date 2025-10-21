@@ -42,7 +42,7 @@
         if (State.CurrentDocId != docId) return;
 
         var isMe = writerInfo is not null && writerInfo.SessionId == _sessionId;
-        State.SetReadOnly(!isMe);
+        State.SetWriteBlock(!isMe);
 
         // Optional: if we lost write, close any open toolbars to avoid "dead" buttons
         if (!isMe)
@@ -63,17 +63,28 @@
         if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
 
         var (res, prev) = Writers.TryBecomeWriter(docId, _userId, _sessionId, force);
-        _isWriter = res is WriterResult.Granted or WriterResult.AlreadyYou or WriterResult.Stolen;
-
-        State.SetReadOnly(!_isWriter);  // <-- add SetReadOnly(bool) on PutDocState if not present
-        
-        if (_isWriter)
+        State.Notify(() =>
         {
-            _hb?.Dispose();
-            _hb = new System.Threading.Timer(_ => {
-                try { Writers.Heartbeat(docId, _sessionId); } catch {}
-            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
-        }
+            _isWriter = res is WriterResult.Granted or WriterResult.AlreadyYou or WriterResult.Stolen;
+
+            State.SetWriteBlock(!_isWriter); // <-- add SetWriteBlock(bool) on PutDocState if not present
+
+            if (_isWriter)
+            {
+                _hb?.Dispose();
+                _hb = new System.Threading.Timer(_ =>
+                {
+                    try
+                    {
+                        Writers.Heartbeat(docId, _sessionId);
+                    }
+                    catch
+                    {
+                    }
+                }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+            }
+
+        });
 
         return new { status = _isWriter ? "writer" : "readonly", prev = prev?.SessionId };
     }
@@ -84,7 +95,7 @@
         var docId = State.CurrentDocId;
         if (docId != Guid.Empty) Writers.Release(docId, _sessionId);
         _isWriter = false;
-        State.SetReadOnly(true);
+        State.SetWriteBlock(true);
         _hb?.Dispose(); _hb = null;
         return new { status = "ok" };
     }

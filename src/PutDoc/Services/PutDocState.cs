@@ -26,48 +26,170 @@ public class PutDocState
     readonly IAngleSoftFilter _filter;
     private readonly IDocCatalogService _catalog;
     private readonly IJSRuntime _js; // if you need it for RO attribute
+    private readonly RepairLogService _repairs;
+    
 
-    public PutDocState(IDocCatalogService catalog, IAngleSoftFilter filter, IJSRuntime js)
+    public PutDocState(RepairLogService repairs, IDocCatalogService catalog, IAngleSoftFilter filter, IJSRuntime js)
     {
+        _repairs = repairs;
         _catalog = catalog;
         _filter = filter;
         _js = js;
     }
 
-    public bool IsReadOnly { get; private set; } = true;
+    // PutDocState.cs
+    private bool _isWriteBlocked = true;
+    private bool _needsRepairReview;
 
-    public void SetReadOnly(bool ro)
+    public bool NeedsRepairReview
     {
-        if (IsReadOnly != ro)
+        get => _needsRepairReview;
+        private set
         {
-            IsReadOnly = ro;
-            _ = _js.InvokeVoidAsync(
-                "document.documentElement.setAttribute", "data-pd-readonly", ro ? "true" : "false");
-            IsReadOnly = ro;
-            Changed?.Invoke();
+            if (_needsRepairReview == value) return;
+            _needsRepairReview = value;
+            UpdateReadOnlyAndNotifyIfChanged();
         }
     }
 
+    public bool IsReadOnly => _needsRepairReview || _isWriteBlocked;
+
+// --- Public API ---
+
+    public void SetWriteBlock(bool blocked)
+    {
+        if (_isWriteBlocked == blocked) return;
+        _isWriteBlocked = blocked;
+        UpdateReadOnlyAndNotifyIfChanged();
+    }
+
+// Use this from the repair banner / loader:
+    public void SetNeedsRepairReview(bool needsReview)
+    {
+        if (_needsRepairReview == needsReview) return;
+        _needsRepairReview = needsReview;
+        UpdateReadOnlyAndNotifyIfChanged();
+    }
+
+// Atomic update (prevents double notify)
+    public void SetRepairReviewAndWriteBlock(bool needsReview, bool blockedWhenNoReview)
+    {
+        var oldEffective = IsReadOnly;
+
+        _needsRepairReview = needsReview;
+        _isWriteBlocked    = blockedWhenNoReview;
+
+        // Only notify + DOM update if effective changed
+        if (oldEffective != IsReadOnly)
+            UpdateDomReadOnlyAttrAndNotify();
+        else
+            Notify(); // state changed but effective lock didn’t; still safe to coalesce
+    }
+
+// --- Internals ---
+
+    private bool _lastDomReadOnly = true; // track what we last wrote to DOM
+
+    private void UpdateReadOnlyAndNotifyIfChanged()
+    {
+        if (_lastDomReadOnly != IsReadOnly)
+        {
+            UpdateDomReadOnlyAttrAndNotify();
+        }
+        else
+        {
+            Notify();
+        }
+    }
+
+    private void UpdateDomReadOnlyAttrAndNotify()
+    {
+        _lastDomReadOnly = IsReadOnly;
+        // fire & forget on purpose; ignore occasional hydration race
+        _ = _js.InvokeVoidAsync(
+            "document.documentElement.setAttribute",
+            "data-pd-readonly",
+            IsReadOnly ? "true" : "false");
+
+        Notify();
+    }
+
+    
     public bool IsDirty { get; private set; }
 
     public void MarkDirty()
     {
         if (IsDirty) return;
         IsDirty = true;
-        Changed?.Invoke();
+        Notify();
     }
 
     public void ClearDirty()
     {
         if (!IsDirty) return;
         IsDirty = false;
-        Changed?.Invoke();
+        Notify();
     }
 
 
     // NEW: change event
     public event Action? Changed;
-    public void Notify() => Changed?.Invoke();
+
+    private int _batchDepth = 0;
+    private bool _pendingNotify = false;
+
+    // fire immediately (if not batching)
+    public void Notify()
+    {
+        if (_batchDepth > 0)
+        {
+            _pendingNotify = true;
+            return;
+        }
+
+        Changed?.Invoke();
+    }
+
+    // run a block and notify once at the end
+    public void Notify(Action mutation)
+    {
+        using (BeginBatch()) mutation();
+        // BeginBatch/Dispose will emit once
+    }
+
+    // async variant
+    public async Task NotifyAsync(Func<Task> mutation)
+    {
+        using (BeginBatch()) await mutation();
+    }
+
+    // explicit batch (nestable)
+    public IDisposable BeginBatch() => new BatchToken(this);
+
+    private sealed class BatchToken : IDisposable
+    {
+        private readonly PutDocState _s;
+        private bool _disposed;
+
+        public BatchToken(PutDocState s)
+        {
+            _s = s;
+            _s._batchDepth++;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (--_s._batchDepth == 0 && _s._pendingNotify)
+            {
+                _s._pendingNotify = false;
+                _s.Changed?.Invoke();
+            }
+        }
+    }
+
+
     public event Action<string>? CheckpointRequested;
 
     // helper you can call from anywhere (ToolbarHub, etc.)
@@ -171,7 +293,7 @@ public class PutDocState
         if (ok)
         {
             Meta = Meta with { Name = newName, Modified = DateTimeOffset.UtcNow };
-            Changed?.Invoke();
+            Notify();
         }
 
         return ok;
@@ -276,152 +398,355 @@ public class PutDocState
         return id;
     } */
 
-    
+
     // PutDocState.cs
     private long _loadEpoch = 0; // increments per load request
     private long _appliedEpoch = 0; // last epoch that successfully applied
     private CancellationTokenSource? _loadCts;
 
-    public enum RecoveryStrategy
-    {
-        RetainIds,
-        RekeyNewIds
-    }
 
     public static class PutDocNormalize
-{
-    public sealed class RepairSummary
     {
-        public int MissingPagesRecovered { get; set; }
-        public int MissingCollectionsRecovered { get; set; }
-        public int PageRefsDeduped { get; set; }
-        public int CollectionRefsDeduped { get; set; }
-
-        public List<Guid> RecoveredPageIds { get; } = new();
-        public List<Guid> RecoveredCollectionIds { get; } = new();
-
-        // (Optional) map: originalId -> newId when RekeyNewIds
-        public Dictionary<Guid, Guid> RekeyedIds { get; } = new();
-
-        public bool Any => MissingPagesRecovered > 0 || MissingCollectionsRecovered > 0
-                                                     || PageRefsDeduped > 0 || CollectionRefsDeduped > 0;
-
-        public override string ToString()
+        public sealed class RepairSummary
         {
-            var parts = new List<string>();
-            if (MissingPagesRecovered > 0)
-                parts.Add($"{MissingPagesRecovered} page(s) recovered");
-            if (MissingCollectionsRecovered > 0)
-                parts.Add($"{MissingCollectionsRecovered} collection(s) recovered");
-            if (PageRefsDeduped > 0)
-                parts.Add($"{PageRefsDeduped} duplicate page reference(s) removed");
-            if (CollectionRefsDeduped > 0)
-                parts.Add($"{CollectionRefsDeduped} duplicate collection reference(s) removed");
-            return parts.Count == 0 ? "No repairs needed." : string.Join("; ", parts) + ".";
-        }
-    }
+            public int MissingPagesRecovered { get; set; }
+            public int MissingCollectionsRecovered { get; set; }
+            public int PageRefsDeduped { get; set; }
+            public int CollectionRefsDeduped { get; set; }
 
-    public enum RecoveryStrategy { RetainIds, RekeyNewIds }
+            public int OrphanPagesAttached { get; set; }
+            public int OrphanCollectionsAttached { get; set; }
 
-    public static RepairSummary NormalizeDocument(
-        PutDocFile doc,
-        RecoveryStrategy strategy = RecoveryStrategy.RetainIds,
-        string recoveredSuffix = " (recovered)")
-    {
-        var report = new RepairSummary();
-        if (doc is null) return report;
+            public List<Guid> RecoveredPageIds { get; } = new();
+            public List<Guid> RecoveredCollectionIds { get; } = new();
 
-        if (!doc.Collections.ContainsKey(doc.RootCollectionId) && doc.Collections.Count > 0)
-            doc.RootCollectionId = doc.Collections.Keys.First();
+            // (Optional) map: originalId -> newId when RekeyNewIds
+            public Dictionary<Guid, Guid> RekeyedIds { get; } = new();
 
-        static string NameFor(string kind, Guid id, string suf)
-            => $"{kind} {id.ToString()[..8]}{suf}";
+            public bool Any =>
+                MissingPagesRecovered + MissingCollectionsRecovered +
+                PageRefsDeduped + CollectionRefsDeduped +
+                OrphanPagesAttached + OrphanCollectionsAttached > 0;
 
-        foreach (var c in doc.Collections.Values)
-        {
-            // PageIds: dedupe (keep first), recover missing—preserving order
-            if (c.PageIds is { Count: > 0 })
+            public override string ToString()
             {
-                var seen = new HashSet<Guid>();
-                for (int i = 0; i < c.PageIds.Count; i++)
+                var parts = new List<string>();
+                if (MissingPagesRecovered > 0) parts.Add($"{MissingPagesRecovered} page(s) recovered");
+                if (MissingCollectionsRecovered > 0) parts.Add($"{MissingCollectionsRecovered} collection(s) recovered");
+                if (PageRefsDeduped > 0) parts.Add($"{PageRefsDeduped} duplicate page ref(s) removed");
+                if (CollectionRefsDeduped > 0) parts.Add($"{CollectionRefsDeduped} duplicate collection ref(s) removed");
+                if (OrphanPagesAttached > 0) parts.Add($"{OrphanPagesAttached} orphan page(s) attached to Lost & Found");
+                if (OrphanCollectionsAttached > 0) parts.Add($"{OrphanCollectionsAttached} orphan collection(s) attached to Lost & Found");
+                return parts.Count == 0 ? "No repairs needed." : string.Join("; ", parts) + ".";
+            }
+        }
+
+        public enum RecoveryStrategy
+        {
+            RetainIds,
+            RekeyNewIds
+        }
+
+        public static RepairSummary NormalizeDocument(
+            PutDocFile doc,
+            RecoveryStrategy strategy = RecoveryStrategy.RetainIds,
+            string recoveredSuffix = " (recovered)")
+        {
+            var report = new RepairSummary();
+            if (doc is null) return report;
+        
+            // Ensure root exists
+            if (!doc.Collections.ContainsKey(doc.RootCollectionId) && doc.Collections.Count > 0)
+                doc.RootCollectionId = doc.Collections.Keys.First();
+        
+            static string NameFor(string kind, Guid id, string suf)
+                => $"{kind} {id.ToString()[..8]}{suf}";
+        
+            var collectionsToAdd = new List<Collection>();
+        
+            // Track references as we walk
+            var referencedPageIds = new HashSet<Guid>();
+            var referencedCollectionIds = new HashSet<Guid> { doc.RootCollectionId }; // root is referenced by definition
+        
+            // -------- First pass: fix refs (dedupe/recover) and collect reference sets --------
+            foreach (var c in doc.Collections.Values)
+            {
+                // Pages
+                if (c.PageIds is { Count: > 0 })
                 {
-                    var pid = c.PageIds[i];
-
-                    if (!seen.Add(pid))
+                    var seen = new HashSet<Guid>();
+                    for (int i = 0; i < c.PageIds.Count; i++)
                     {
-                        c.PageIds.RemoveAt(i);
-                        i--; report.PageRefsDeduped++;
-                        continue;
-                    }
-
-                    if (!doc.Pages.ContainsKey(pid))
-                    {
-                        var newId = (strategy == RecoveryStrategy.RetainIds) ? pid : Guid.NewGuid();
-                        if (strategy == RecoveryStrategy.RekeyNewIds && newId != pid)
+                        var pid = c.PageIds[i];
+        
+                        if (!seen.Add(pid))
                         {
-                            report.RekeyedIds[pid] = newId;
-                            c.PageIds[i] = newId; // swap in place, same index
+                            c.PageIds.RemoveAt(i);
+                            i--; report.PageRefsDeduped++;
+                            continue;
                         }
-
-                        if (!doc.Pages.ContainsKey(newId))
+        
+                        referencedPageIds.Add(pid);
+        
+                        if (!doc.Pages.ContainsKey(pid))
                         {
-                            doc.Pages[newId] = new Page
+                            var newId = (strategy == RecoveryStrategy.RetainIds) ? pid : Guid.NewGuid();
+                            if (strategy == RecoveryStrategy.RekeyNewIds && newId != pid)
                             {
-                                Id = newId,
-                                Title = NameFor("Page", newId, recoveredSuffix),
-                                Snippets = new List<Snippet>()
-                            };
-                            report.MissingPagesRecovered++;
-                            report.RecoveredPageIds.Add(newId);
+                                report.RekeyedIds[pid] = newId;
+                                c.PageIds[i] = newId;
+                            }
+        
+                            if (!doc.Pages.ContainsKey(newId))
+                            {
+                                doc.Pages[newId] = new Page
+                                {
+                                    Id = newId,
+                                    Title = NameFor("Page", newId, recoveredSuffix),
+                                    Snippets = new List<Snippet>()
+                                };
+                                report.MissingPagesRecovered++;
+                                report.RecoveredPageIds.Add(newId);
+                            }
+        
+                            referencedPageIds.Add(newId);
+                        }
+                    }
+                }
+        
+                // Child Collections
+                if (c.ChildCollectionIds is { Count: > 0 })
+                {
+                    var seen = new HashSet<Guid>();
+                    for (int i = 0; i < c.ChildCollectionIds.Count; i++)
+                    {
+                        var cid = c.ChildCollectionIds[i];
+        
+                        if (!seen.Add(cid))
+                        {
+                            c.ChildCollectionIds.RemoveAt(i);
+                            i--; report.CollectionRefsDeduped++;
+                            continue;
+                        }
+        
+                        referencedCollectionIds.Add(cid);
+        
+                        if (!doc.Collections.ContainsKey(cid))
+                        {
+                            var newId = (strategy == RecoveryStrategy.RetainIds) ? cid : Guid.NewGuid();
+                            if (strategy == RecoveryStrategy.RekeyNewIds && newId != cid)
+                            {
+                                report.RekeyedIds[cid] = newId;
+                                c.ChildCollectionIds[i] = newId;
+                            }
+        
+                            if (!doc.Collections.ContainsKey(newId))
+                            {
+                                collectionsToAdd.Add(new Collection
+                                {
+                                    Id = newId,
+                                    Title = NameFor("Collection", newId, recoveredSuffix),
+                                    PageIds = new List<Guid>(),
+                                    ChildCollectionIds = new List<Guid>()
+                                });
+        
+                                report.MissingCollectionsRecovered++;
+                                report.RecoveredCollectionIds.Add(newId);
+                            }
+        
+                            referencedCollectionIds.Add(newId);
                         }
                     }
                 }
             }
-
-            // ChildCollectionIds: dedupe (keep first), recover missing—preserving order
-            if (c.ChildCollectionIds is { Count: > 0 })
+        
+            // Materialize any recovered collections we staged
+            foreach (var c in collectionsToAdd)
+                doc.Collections[c.Id] = c;
+        
+            // -------- Second pass: attach ORPHANS to Lost & Found --------
+        
+            // Build the set of all referenced pages/collections from the whole tree we just fixed
+            referencedPageIds.Clear();
+            referencedCollectionIds.Clear();
+            referencedCollectionIds.Add(doc.RootCollectionId);
+        
+            foreach (var c in doc.Collections.Values)
             {
-                var seen = new HashSet<Guid>();
-                for (int i = 0; i < c.ChildCollectionIds.Count; i++)
+                if (c.PageIds is { Count: > 0 })
+                    foreach (var pid in c.PageIds) referencedPageIds.Add(pid);
+        
+                if (c.ChildCollectionIds is { Count: > 0 })
+                    foreach (var cid in c.ChildCollectionIds) referencedCollectionIds.Add(cid);
+            }
+        
+            // Orphan pages = in Pages but in no collection.PageIds
+            var orphanPages = doc.Pages.Keys.Where(pid => !referencedPageIds.Contains(pid)).ToList();
+        
+            // Orphan collections = in Collections but not root and not referenced by any parent's ChildCollectionIds
+            var orphanCollections = doc.Collections.Keys
+                .Where(cid => cid != doc.RootCollectionId && !referencedCollectionIds.Contains(cid))
+                .ToList();
+        
+            if (orphanPages.Count > 0 || orphanCollections.Count > 0)
+            {
+                // Find or create a single Lost & Found under root
+                var lfId = doc.Collections.Values
+                    .FirstOrDefault(kv => kv.Title.Equals("Lost & Found", StringComparison.OrdinalIgnoreCase))?.Id
+                    ?? Guid.NewGuid();
+        
+                if (!doc.Collections.ContainsKey(lfId))
                 {
-                    var cid = c.ChildCollectionIds[i];
-
-                    if (!seen.Add(cid))
+                    doc.Collections[lfId] = new Collection
                     {
-                        c.ChildCollectionIds.RemoveAt(i);
-                        i--; report.CollectionRefsDeduped++;
-                        continue;
-                    }
+                        Id = lfId,
+                        Title = "Lost & Found",
+                        PageIds = new List<Guid>(),
+                        ChildCollectionIds = new List<Guid>()
+                    };
+        
+                    // Attach Lost & Found under root if not already present
+                    var root = doc.Collections[doc.RootCollectionId];
+                    root.ChildCollectionIds ??= new List<Guid>();
+                    if (!root.ChildCollectionIds.Contains(lfId))
+                        root.ChildCollectionIds.Add(lfId);
+                }
+        
+                var lf = doc.Collections[lfId];
+                lf.PageIds ??= new List<Guid>();
+                lf.ChildCollectionIds ??= new List<Guid>();
+        
+                // Append orphan pages
+                foreach (var pid in orphanPages)
+                {
+                    lf.PageIds.Add(pid);
+                    report.OrphanPagesAttached++;
+                }
+        
+                // Append orphan collections (avoid self/root)
+                foreach (var cid in orphanCollections)
+                {
+                    if (cid == lfId || cid == doc.RootCollectionId) continue;
+                    lf.ChildCollectionIds.Add(cid);
+                    report.OrphanCollectionsAttached++;
+                }
+            }
+        
+            return report;
+        }
 
-                    if (!doc.Collections.ContainsKey(cid))
+        
+        public static RepairSummary NormalizeDocumentOrig(
+            PutDocFile doc,
+            RecoveryStrategy strategy = RecoveryStrategy.RetainIds,
+            string recoveredSuffix = " (recovered)")
+        {
+            var report = new RepairSummary();
+            if (doc is null) return report;
+
+            if (!doc.Collections.ContainsKey(doc.RootCollectionId) && doc.Collections.Count > 0)
+                doc.RootCollectionId = doc.Collections.Keys.First();
+
+            static string NameFor(string kind, Guid id, string suf)
+                => $"{kind} {id.ToString()[..8]}{suf}";
+
+            List<Collection> collectionsToBeAdded = new List<Collection>();
+            
+            foreach (var c in doc.Collections.Values)
+            {
+                // PageIds: dedupe (keep first), recover missing—preserving order
+                if (c.PageIds is { Count: > 0 })
+                {
+                    var seen = new HashSet<Guid>();
+                    for (int i = 0; i < c.PageIds.Count; i++)
                     {
-                        var newId = (strategy == RecoveryStrategy.RetainIds) ? cid : Guid.NewGuid();
-                        if (strategy == RecoveryStrategy.RekeyNewIds && newId != cid)
+                        var pid = c.PageIds[i];
+
+                        if (!seen.Add(pid))
                         {
-                            report.RekeyedIds[cid] = newId;
-                            c.ChildCollectionIds[i] = newId;
+                            c.PageIds.RemoveAt(i);
+                            i--;
+                            report.PageRefsDeduped++;
+                            continue;
                         }
 
-                        if (!doc.Collections.ContainsKey(newId))
+                        if (!doc.Pages.ContainsKey(pid))
                         {
-                            doc.Collections[newId] = new Collection
+                            var newId = (strategy == RecoveryStrategy.RetainIds) ? pid : Guid.NewGuid();
+                            if (strategy == RecoveryStrategy.RekeyNewIds && newId != pid)
                             {
-                                Id = newId,
-                                Title = NameFor("Collection", newId, recoveredSuffix),
-                                PageIds = new List<Guid>(),
-                                ChildCollectionIds = new List<Guid>()
-                            };
-                            report.MissingCollectionsRecovered++;
-                            report.RecoveredCollectionIds.Add(newId);
+                                report.RekeyedIds[pid] = newId;
+                                c.PageIds[i] = newId; // swap in place, same index
+                            }
+
+                            if (!doc.Pages.ContainsKey(newId))
+                            {
+                                doc.Pages[newId] = new Page
+                                {
+                                    Id = newId,
+                                    Title = NameFor("Page", newId, recoveredSuffix),
+                                    Snippets = new List<Snippet>()
+                                };
+                                report.MissingPagesRecovered++;
+                                report.RecoveredPageIds.Add(newId);
+                            }
                         }
                     }
                 }
-            }
-        }
 
-        return report;
+                // ChildCollectionIds: dedupe (keep first), recover missing—preserving order
+                if (c.ChildCollectionIds is { Count: > 0 })
+                {
+                    
+                    var seen = new HashSet<Guid>();
+                    for (int i = 0; i < c.ChildCollectionIds.Count; i++)
+                    {
+                        var cid = c.ChildCollectionIds[i];
+
+                        if (!seen.Add(cid))
+                        {
+                            c.ChildCollectionIds.RemoveAt(i);
+                            i--;
+                            report.CollectionRefsDeduped++;
+                            continue;
+                        }
+
+                        if (!doc.Collections.ContainsKey(cid))
+                        {
+                            var newId = (strategy == RecoveryStrategy.RetainIds) ? cid : Guid.NewGuid();
+                            if (strategy == RecoveryStrategy.RekeyNewIds && newId != cid)
+                            {
+                                report.RekeyedIds[cid] = newId;
+                                c.ChildCollectionIds[i] = newId;
+                            }
+
+                            if (!doc.Collections.ContainsKey(newId))
+                            {
+                                collectionsToBeAdded.Add( new Collection
+                                {
+                                    Id = newId,
+                                    Title = NameFor("Collection", newId, recoveredSuffix),
+                                    PageIds = new List<Guid>(),
+                                    ChildCollectionIds = new List<Guid>()
+                                });
+                                
+                                report.MissingCollectionsRecovered++;
+                                report.RecoveredCollectionIds.Add(newId);
+                            }
+                        }
+                    }
+                }
+                
+            }
+            
+            foreach (Collection c in collectionsToBeAdded)
+            {
+                doc.Collections[c.Id]=c;
+            }
+
+            return report;
+        }
     }
-}
 
     private void LogDocAnomalies(PutDocFile doc)
     {
@@ -433,11 +758,80 @@ public class PutDocState
                 Console.WriteLine($"[validate] Collection {c.Title} has {missing.Count} missing PageIds");
         }
     }
-    
+
     public PutDocNormalize.RepairSummary? LastRepairSummary { get; private set; }
+
+    /*
+     await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', true)");
+     await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('ReleaseDocWriter')");
+    */
+    
+    
+    public async Task ApplyRepairsAndSaveAsync()
+    {
+        if (Meta is null) return;
+
+        // Normalize the live Doc in place (order-preserving recovery)
+        var summary = PutDocNormalize.NormalizeDocument(Doc);
+
+        
+        await NotifyAsync(async () =>
+        {
+            SetNeedsRepairReview(false);
+            // clear write-block unless other guards apply
+            var v = await _js.InvokeAsync<JsonElement>("putdocPresence.acquireWriter", true);
+            var isWriter = v.ValueKind == JsonValueKind.Object
+                           && v.TryGetProperty("status", out var s)
+                           && s.GetString() == "writer";
+            if (isWriter)
+                await SaveWholeDocumentAsync();//if (!ok) SetWriteBlock(true); // fallback: remain read-only if presence denied
+        });
+    }
+
+    public async Task IgnoreRepairsKeepReadOnly()
+    {
+        await NotifyAsync(async () =>
+        {
+            SetNeedsRepairReview(false);   // hide banner
+            await _js.InvokeVoidAsync("putdocPresence.releaseWriter");
+            //SetWriteBlock(true);           // explicitly keep read-only
+        });
+    }
+
+    public async Task DismissAndEditAnyway()
+    {
+        await NotifyAsync(async () =>
+        {
+            SetNeedsRepairReview(false);   // hide banner
+            var ok = await _js.InvokeAsync<JsonElement>("putdocPresence.acquireWriter", true);
+            //if (!ok) SetWriteBlock(true);
+        });
+    }
+    public static async Task<PutDocFile> DeepClone(PutDocFile file)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
+        using var fs = ConvertStringToStream(JsonSerializer.Serialize(file, jsonOptions));
+        var loadedDoc = await JsonSerializer.DeserializeAsync<PutDocFile>(fs, jsonOptions)
+                        ?? new PutDocFile();
+        fs.Close();
+
+        return loadedDoc;
+
+    }
 
     public async Task LoadAsync(Guid id)
     {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
 
         // (Optional) move the epoch bump to the very start to be extra explicit
         Interlocked.Increment(ref _loadEpoch);
@@ -467,11 +861,6 @@ public class PutDocState
             if (myEpoch != _loadEpoch) return;
 
             // Parse JSON
-            var jsonOptions = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            };
 
             using var fs = ConvertStringToStream(payload.json);
             var loadedDoc = await JsonSerializer.DeserializeAsync<PutDocFile>(fs, jsonOptions)
@@ -479,10 +868,10 @@ public class PutDocState
 
             LogDocAnomalies(loadedDoc);
 
-            LastRepairSummary = PutDocNormalize.NormalizeDocument(loadedDoc);
-            
-            if (LastRepairSummary?.Any == true)
-                Console.WriteLine($"[repair] {LastRepairSummary}");
+            //LastRepairSummary = PutDocNormalize.NormalizeDocument(loadedDoc);
+
+            //if (LastRepairSummary?.Any == true)
+            //    Console.WriteLine($"[repair] {LastRepairSummary}");
 
             // Ensure puids in all snippets
             foreach (var p in loadedDoc.Pages.Values)
@@ -493,30 +882,53 @@ public class PutDocState
                 }
             }
 
-            // ---- Apply atomically to state (this is the only mutation point) ----
-            Doc = loadedDoc;
-            Meta = meta with { Version = payload.version };
+            var previewCopy = await DeepClone(loadedDoc); // serialize/deserialize or manual copy
+            var previewSummary = PutDocNormalize.NormalizeDocument(
+                previewCopy, PutDocNormalize.RecoveryStrategy.RetainIds /* or RekeyNewIds */);
 
-            // Reset selection for the new doc (don’t carry old ids forward)
-            SelectedPageId = Doc.Collections.TryGetValue(Doc.RootCollectionId, out var root) &&
-                             root.PageIds is { Count: > 0 } ? root.PageIds[0]
-                : Doc.Pages.Keys.FirstOrDefault();
+            _repairs.Record(id, previewSummary);
 
-            SelectedSnippetId = (SelectedPageId is Guid pid && Doc.Pages.TryGetValue(pid, out var page) &&
-                                 page.Snippets.Count > 0)
-                ? page.Snippets[0].Id
-                : null;
-            //SelectedSnippetId = CurrentPage()?.Snippets.FirstOrDefault()?.Id;
+            Notify(() =>
+            {
+                try
+                {
 
-            _appliedEpoch = myEpoch;
+                    // ---- Apply atomically to state (this is the only mutation point) ----
+                    Doc = loadedDoc;
+                    Meta = meta with { Version = payload.version };
 
-            // Mark clean and announce an EXTERNAL content change so listeners refresh
-            LastUpdateSource = UpdateSource.External; // ← make sure this property exists as in your editor logic
-            ContentVersion++; // ← bump the version so sync code sees a change
-            Console.WriteLine($"[State] Load APPLY id={id} myEpoch={myEpoch} cv={ContentVersion}");
-            IsDirty = false;
-            Notify();
+                    // Reset selection for the new doc (don’t carry old ids forward)
+                    SelectedPageId = Doc.Collections.TryGetValue(Doc.RootCollectionId, out var root) &&
+                                     root.PageIds is { Count: > 0 }
+                        ? root.PageIds[0]
+                        : Doc.Pages.Keys.FirstOrDefault();
 
+                    SelectedSnippetId = (SelectedPageId is Guid pid && Doc.Pages.TryGetValue(pid, out var page) &&
+                                         page.Snippets.Count > 0)
+                        ? page.Snippets[0].Id
+                        : null;
+                    //SelectedSnippetId = CurrentPage()?.Snippets.FirstOrDefault()?.Id;
+
+                    _appliedEpoch = myEpoch;
+
+                    // If repairs are needed, lock editing until reviewed
+                    SetNeedsRepairReview(previewSummary?.Any == true);
+                    
+                    //SetNeedsRepairReview( true);
+                    //if (NeedsRepairReview) SetWriteBlock(true);
+
+                    // Mark clean and announce an EXTERNAL content change so listeners refresh
+                    LastUpdateSource =
+                        UpdateSource.External; // ← make sure this property exists as in your editor logic
+                    ContentVersion++; // ← bump the version so sync code sees a change
+                    Console.WriteLine($"[State] Load APPLY id={id} myEpoch={myEpoch} cv={ContentVersion}");
+                    IsDirty = false;
+                }
+                catch (OperationCanceledException)
+                {
+                    // ignored
+                }
+            });
 
         }
         catch (OperationCanceledException)
@@ -527,14 +939,20 @@ public class PutDocState
 
 
 // Call this from wherever you persist the whole document
-    public async Task SaveWholeDocumentAsync()
+    public async Task SaveWholeDocumentAsync(bool force=false)
     {
-        if (IsReadOnly) return;
+        if (IsReadOnly && !force) return;
 
         var id = CurrentDocId;
         if (id == Guid.Empty) throw new InvalidOperationException("No current document");
 
-        var json = JsonSerializer.Serialize(Doc); // your existing serializer
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+
+        var json = JsonSerializer.Serialize(Doc, jsonOptions); // your existing serializer
         var expected = DocVersion; // CAS
 
         await _catalog.SaveDocumentAsync(id, json, expectedVersion: expected);
@@ -542,7 +960,7 @@ public class PutDocState
         // reflect bump locally
         Meta = Meta! with { Version = expected + 1, Modified = DateTimeOffset.UtcNow };
         ClearDirty();
-        Changed?.Invoke();
+        Notify();
     }
 
     public Page? CurrentPage() => SelectedPageId is Guid id && Doc.Pages.TryGetValue(id, out var p) ? p : null;

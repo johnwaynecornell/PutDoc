@@ -772,6 +772,16 @@
         } catch (e) { return { status: "error", message: String(e) }; }
     };
 
+    window.putdocPresence.acquireWriter = async function(force) {
+        try {
+            return await window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', !!force);
+        } catch { return { status: "error", message: "could not invoke AcquireDocWriter" }; }
+    }
+    
+    window.putdocPresence.releaseWriter = async function() {
+        try { await window.putdocEnh.getHub()?.invokeMethodAsync('ReleaseDocWriter'); } catch {}
+    }
+
     window.putdocNav = {
         bindBeforeUnload(getDirtyOrFrozen) {
             const h = (e) => {

@@ -1,0 +1,128 @@
+@namespace PutDoc.Components
+@inject PutDoc.Services.PutDocState State
+@inject RepairLogService Repairs
+
+@* @if (_summary?.Any == true) *@
+@if (State.NeedsRepairReview)
+{
+    <div class="pd-repair-banner" role="status" aria-live="polite">
+        <div class="pd-repair-title">
+            ⚠️ Reference repairs detected for this document.
+        </div>
+
+        <div class="pd-repair-body">
+            @_summary
+            @if (ShowDetails && _summary != null)
+            {
+                <div class="pd-repair-details">
+                    @if (_summary.RecoveredPageIds.Count > 0)
+                    {
+                        <div><strong>Recovered pages:</strong>
+                            <code>@string.Join(", ", _summary.RecoveredPageIds.Select(id => id.ToString()))</code>
+                        </div>
+                    }
+                    @if (_summary.RecoveredCollectionIds.Count > 0)
+                    {
+                        <div><strong>Recovered collections:</strong>
+                            <code>@string.Join(", ", _summary.RecoveredCollectionIds.Select(id => id.ToString()))</code>
+                        </div>
+                    }
+                    @if (_summary.RekeyedIds.Count > 0)
+                    {
+                        <div><strong>Rekeyed IDs:</strong>
+                            <ul class="pd-repair-list">
+                                @foreach (var kv in _summary.RekeyedIds)
+                                {
+                                    <li><code>@kv.Key</code> → <code>@kv.Value</code></li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="pd-repair-actions">
+            <button class="btn primary" @onclick="Apply">Apply &amp; Save</button>
+            <button class="btn" @onclick="Ignore">Ignore (stay read-only)</button>
+            <button class="btn" @onclick="Dismiss">Dismiss &amp; Edit anyway</button>
+            <button class="btn" @onclick="() => ShowDetails = !ShowDetails">
+                @(ShowDetails ? "Hide details" : "Show details")
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private PutDocState.PutDocNormalize.RepairSummary? _summary;
+    private bool ShowDetails;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        State.Changed += StateOnChanged;
+        
+        // Consume the summary that prerender recorded (survives prerender → interactive)
+        var id = State.Meta?.Id;
+        if (id is Guid docId)
+        {
+            _summary = Repairs.Peek(docId);
+            if (_summary?.Any == true)
+            {
+                // Lock UI until user decides (State already likely set IsReadOnly, but ensure)
+                State.SetWriteBlock(true);
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async void StateOnChanged()
+    {
+        await InvokeAsync(() => StateHasChanged());
+    }
+
+    public void Dispose()
+    {
+        State.Changed -= StateOnChanged;
+    }
+
+    private async Task Apply()
+    {
+        // Apply normalize to the *live* Doc and persist
+        await State.ApplyRepairsAndSaveAsync();
+        _summary = null;
+        StateHasChanged();
+    }
+
+    private void Ignore()
+    {
+        // Hide the banner but keep read-only to avoid saving a broken graph.
+        State.IgnoreRepairsKeepReadOnly();
+        _summary = null;
+        StateHasChanged();
+    }
+
+    private void Dismiss()
+    {
+        // User accepts the risk: enable editing
+        State.DismissAndEditAnyway();
+        _summary = null;
+        StateHasChanged();
+    }
+}
+
+<style>
+.pd-repair-banner {
+  background: #fff3cd;
+  border: 1px solid #ffeeba;
+  border-radius: .5rem;
+  padding: .5rem .75rem;
+  margin: .5rem 0;
+}
+.pd-repair-title { font-weight: 700; margin-bottom: .25rem; }
+.pd-repair-body  { font-size: .9rem; margin-bottom: .35rem; }
+.pd-repair-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.pd-repair-details { margin-top: .35rem; background:#fff; border:1px dashed #e6c57d; border-radius:.35rem; padding:.35rem; }
+.pd-repair-list { margin:.25rem 0 0 .95rem; }
+</style>
