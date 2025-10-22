@@ -92,6 +92,8 @@
     [JSInvokable]
     public object ReleaseDocWriter()
     {
+        if (!_isWriter) return new { status = "ok" };;
+        
         var docId = State.CurrentDocId;
         if (docId != Guid.Empty) Writers.Release(docId, _sessionId);
         _isWriter = false;

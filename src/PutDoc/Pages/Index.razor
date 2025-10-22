@@ -168,7 +168,7 @@
 
     public void Dispose()
     {
-        _ = InvokeAsync(async () => JS.InvokeVoidAsync("putdocPresence.releaseWriter"));
+        _ = JS.InvokeVoidAsync("putdocPresence.releaseWriter");
         
         State.Changed -= OnStateChanged;
         Writers.WriterChanged -= OnWriterChanged;
