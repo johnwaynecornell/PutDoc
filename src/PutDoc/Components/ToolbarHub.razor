@@ -11,38 +11,160 @@
 @code {
     DotNetObjectReference<ToolbarHub>? _selfRef;
     string _clientId = "";
+
     string _sessionId = "";
+
     //string _userId => State.CurrentUserId ?? "local-user"; // adjust to your auth/user
     string _userId => "local-user"; // adjust to your auth/user
+
+    string _componentId = Guid.NewGuid().ToString("N");
+    bool _isLeader = false;
 
     // Track the current held lock (one at a time editor UX)
     LockKey? _heldKey;
     System.Threading.Timer? _hbTimer; //Presence
     System.Threading.Timer? _hb; //DocWriter
     bool _isWriter;
-    
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+
+    protected override void OnInitialized()
     {
-        if (!firstRender) return;
-
-        _selfRef = DotNetObjectReference.Create(this);
-        await JS.InvokeVoidAsync("putdocEnh.setHub", _selfRef);
-
-        _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId");
-        _clientId = await JS.InvokeAsync<string>("putdoc.getClientId");
-        
         State.Changed += StateOnChanged;
         Writers.WriterChanged += WritersOnWriterChanged;
+        State.UiReset += OnUiReset;
+
+        base.OnInitialized();
+    }
+    
+    private void OnUiReset()
+    {
+        try { ReleaseDocWriter(); } catch {}
+        try { ReleaseCurrent(); } catch {}
+        _isWriter = false;
+        _hb?.Dispose(); _hb = null;
+        _hbTimer?.Dispose(); _hbTimer = null;
         
-        //await AcquireDocWriter(false);
+        _heldKey = null;
+
+        State.SetWriteBlock(true);
+        _ = JS.InvokeVoidAsync("putdocEnh.closeAllToolbars");
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public bool _done_init = false;
+
+    private async Task EnsureInitAsync()
+    {
+        if (_done_init) return;
+
+        // 1) Claim leadership
+        _isLeader = await JS.InvokeAsync<bool>("putdocEnh.claimLeader", _componentId);
+
+        // 2) Get IDs (safe for both leaders and non-leaders; needed for logs)
+        _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId");
+        _clientId = await JS.InvokeAsync<string>("putdoc.getClientId");
+        _done_init = !string.IsNullOrEmpty(_sessionId);
+
+        Console.WriteLine($"[ToolbarHub] init: leader={_isLeader} session={_sessionId} client={_clientId}");
+
+        // 3) Only the leader publishes the hub to JS
+        if (_isLeader)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("putdocEnh.setHub", _selfRef);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await EnsureInitAsync();
+        // Nothing else needed here; actions happen when JS calls back into us or Writer events fire
     }
 
     private void WritersOnWriterChanged(Guid docId, WriterInfo? writerInfo)
     {
+        if (!_isLeader) return; // only leader toggles read-only UI
+
         if (State.CurrentDocId != docId) return;
+        if (string.IsNullOrEmpty(_sessionId)) return;
 
         var isMe = writerInfo is not null && writerInfo.SessionId == _sessionId;
         State.SetWriteBlock(!isMe);
+
+        Console.WriteLine($"[ToolbarHub] WritersOnWriterChanged: _sessionId={_sessionId} docId={docId} isMe={isMe}");
+        if (!isMe)
+            _ = JS.InvokeVoidAsync("putdocEnh.closeAllToolbars");
+
+        //State.Notify();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void StateOnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    [JSInvokable]
+    public async Task<object> AcquireDocWriter(bool force)
+    {
+        // Non-leaders do nothing user-visible; return current status
+        await EnsureInitAsync();
+        if (!_isLeader)
+            return new { status = State.IsReadOnly ? "readonly" : "writer", note = "non-leader" };
+
+        var docId = State.CurrentDocId;
+        if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
+
+        var (res, _) = Writers.TryBecomeWriter(docId, _userId, _sessionId, force);
+        State.Notify(() =>
+        {
+            _isWriter = res is WriterResult.Granted or WriterResult.AlreadyYou or WriterResult.Stolen;
+            State.SetWriteBlock(!_isWriter);
+
+            if (_isWriter)
+            {
+                _hb?.Dispose();
+                _hb = new System.Threading.Timer(_ =>
+                {
+                    try
+                    {
+                        Writers.Heartbeat(docId, _sessionId);
+                    }
+                    catch
+                    {
+                    }
+                }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+            }
+        });
+
+        return new { status = _isWriter ? "writer" : "readonly" };
+    }
+
+    [JSInvokable]
+    public object ReleaseDocWriter()
+    {
+        if (!_isLeader) return new { status = "ok", note = "non-leader" };
+
+        if (_isWriter)
+        {
+            var docId = State.CurrentDocId;
+            if (docId != Guid.Empty) Writers.Release(docId, _sessionId);
+            _isWriter = false;
+            State.SetWriteBlock(true);
+        }
+
+        _hb?.Dispose();
+        _hb = null;
+        return new { status = "ok" };
+    }
+
+    /*
+    private void WritersOnWriterChanged(Guid docId, WriterInfo? writerInfo)
+    {
+        if (State.CurrentDocId != docId) return;
+
+        if (_sessionId == "") return;
+
+        var isMe = writerInfo is not null && writerInfo.SessionId == _sessionId;
+        State.SetWriteBlock(!isMe);
+
+        Console.WriteLine($"[ToolbarHub] WritersOnWriterChanged: docId={docId} _sessionId={_sessionId} _clientId={_clientId} isMe={isMe}");
 
         // Optional: if we lost write, close any open toolbars to avoid "dead" buttons
         if (!isMe)
@@ -59,6 +181,8 @@
     [JSInvokable]
     public async Task<object> AcquireDocWriter(bool force)
     {
+        ensureInit();
+
         var docId = State.CurrentDocId;
         if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
 
@@ -92,8 +216,9 @@
     [JSInvokable]
     public object ReleaseDocWriter()
     {
+        ensureInit();
         if (!_isWriter) return new { status = "ok" };;
-        
+
         var docId = State.CurrentDocId;
         if (docId != Guid.Empty) Writers.Release(docId, _sessionId);
         _isWriter = false;
@@ -102,6 +227,7 @@
         return new { status = "ok" };
     }
 
+    */
     // ===== Lock helpers =====
 
     static LockKey SnippetKey(Guid docId, Guid snippetId)
@@ -112,17 +238,24 @@
 
     void StartHeartbeat(LockKey key)
     {
+        if (!_isLeader) return;
         StopHeartbeat();
-        _heldKey = key;
-        _hbTimer = new System.Threading.Timer(_ => {
-            try { Presence.Heartbeat(key, _userId, _clientId); } catch { }
-        }, null, dueTime: TimeSpan.FromSeconds(10), period: TimeSpan.FromSeconds(10));
+        _hbTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                Presence.Heartbeat(key, _userId, _clientId);
+            }
+            catch
+            {
+            }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
     void StopHeartbeat()
     {
-        _hbTimer?.Dispose(); _hbTimer = null;
-        _heldKey = null;
+        _hbTimer?.Dispose();
+        _hbTimer = null;
     }
 
     [JSInvokable]
@@ -143,11 +276,13 @@
         await JS.InvokeVoidAsync("putdocEnh.markSelected", puid);
         return new { status = "ok" };
     }
-    
+
     [JSInvokable]
-    public object AcquireForEdit(string kind /* "snippet"|"fragment-inner"|"fragment-outer" */, string puid, string snippetIdStr, bool force=false)
+    public object AcquireForEdit(string kind /* "snippet"|"fragment-inner"|"fragment-outer" */, string puid, string snippetIdStr, bool force = false)
     {
         if (!Guid.TryParse(snippetIdStr, out var snippetId)) return new { status = "error", message = "bad snippetId" };
+        if (!_isLeader) return new { status = "readonly" }; // non-leader never contends locks
+
         var docId = State.CurrentDocId;
         if (docId == Guid.Empty) return new { status = "error", message = "no doc" };
 
@@ -179,12 +314,22 @@
     [JSInvokable]
     public object ReleaseCurrent()
     {
+        if (!_isLeader) return new { status = "noop" };
+
         if (_heldKey is { } key)
         {
-            try { Presence.Release(key, _userId, _clientId); } catch { }
+            try
+            {
+                Presence.Release(key, _userId, _clientId);
+            }
+            catch
+            {
+            }
+
             StopHeartbeat();
             return new { status = "ok" };
         }
+
         return new { status = "noop" };
     }
 
@@ -195,19 +340,19 @@
     {
         if (!Guid.TryParse(snippetIdStr, out var snippetId)) return new { status = "error", message = "bad snippetId" };
 
-        // Auto-acquire for edit actions
         if (action is "edit-inner" or "edit-outer")
         {
             if (!await State.EnsureClearForTextChangeInternalAsync()) return new { status = "ok" };
 
-            var kind = action == "edit-outer" ? "fragment-outer" : "fragment-inner";
-            var acquire = AcquireForEdit(kind, puid, snippetIdStr, force: false);
-            if ((acquire as dynamic).status != "granted" && (acquire as dynamic).status != "stolen")
+            if (_isLeader)
             {
-                return acquire; // denied or error → let JS decide whether to prompt "Take over"
+                var kind = action == "edit-outer" ? "fragment-outer" : "fragment-inner";
+                var acquire = AcquireForEdit(kind, puid, snippetIdStr, force: false);
+                var status = (acquire as dynamic).status as string;
+                if (status != "granted" && status != "stolen")
+                    return acquire;
             }
 
-            // proceed to open editor
             await State.BeginFragmentEdit(snippetId, puid, action == "edit-outer"
                 ? PutDocState.FragmentScope.Outer
                 : PutDocState.FragmentScope.Inner);
@@ -218,36 +363,72 @@
 
         if (action == "copy")
         {
-            await JS.InvokeVoidAsync("putdocEnh.copyByPuid", puid);
-            
+            // Use your cleaner copy (no duplicate branch)
+            var target = await HtmlTransformService.FetchTarget(State, snippetId, puid);
+            if (target is null) return new { status = "error" };
+            var text = await HtmlPuid.StripPuidsAsync(target.OuterHtml);
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
             return new { status = "ok" };
         }
-        
-        if (action == "copy")
-        {
-            IElement target = await HtmlTransformService.FetchTarget(State, snippetId, puid);
-            if (target==null) return new { status = "error" };
-         
-            string text = await HtmlPuid.StripPuidsAsync(target.OuterHtml);
-            await CopyToClipboard(text);
-            
-            return new { status = "ok" };
-        }
-        
+
+        // Structural edits only make sense for the leader; non-leaders return readonly
+        if (!_isLeader) return new { status = "readonly" };
+
         State.RequestCheckpoint(action);
-        
-        // Non-edit mutations delegate to your HtmlTransformService as before
+
         var ok = await HtmlTransformService.ApplyAsync(State, snippetId, action, puid);
-        if (ok)
+        if (!ok) return new { status = "error" };
+
+        var structural = action is "clone" or "delete" or "up" or "down" or "edit-outer";
+        if (structural)
+            Invalidations.Bump(State.CurrentDocId, _sessionId, structural: true);
+
+        return new { status = "ok" };
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Console.WriteLine("[ToolbarHub] DisposeAsync");
+
+        // Only leader clears hub and releases leadership
+        if (_isLeader)
         {
-            var structural = action is "clone" or "delete" or "up" or "down" or "edit-outer";
-            if (structural && State.Doc is { } doc)
+            try
             {
-                Invalidations.Bump(State.CurrentDocId, _sessionId, structural: true);
+                ReleaseDocWriter();
             }
-            return new { status = "ok" };
+            catch
+            {
+            }
+
+            try
+            {
+                await JS.InvokeVoidAsync("putdocEnh.clearHub", _selfRef);
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                await JS.InvokeVoidAsync("putdocEnh.releaseLeader", _componentId);
+            }
+            catch
+            {
+            }
         }
-        return new { status = "error" };
+
+        State.Changed -= StateOnChanged;
+        Writers.WriterChanged -= WritersOnWriterChanged;
+        State.UiReset -= OnUiReset;
+        
+        _hb?.Dispose();
+        _hb = null;
+
+        _hbTimer?.Dispose();
+        _hbTimer = null;
+
+        _selfRef?.Dispose();
     }
     
     async Task CopyToClipboard(string html) =>
@@ -288,13 +469,4 @@
         return Task.FromResult(html);
     }
     
-    public async ValueTask DisposeAsync()
-    {
-        State.Changed -= StateOnChanged;
-        
-        try { ReleaseCurrent(); } catch { }
-        StopHeartbeat();
-        _selfRef?.Dispose();
-        await Task.CompletedTask;
-    }
 }

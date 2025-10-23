@@ -5,6 +5,7 @@ using PutDoc.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+//dotnet PutDoc --urls "http://localhost:5000" --PutDocRootPath "/data/jwc/Documents/PutDoc"
 // Services
 builder.Configuration.AddEnvironmentVariables(prefix: "PUTDOC_");
 

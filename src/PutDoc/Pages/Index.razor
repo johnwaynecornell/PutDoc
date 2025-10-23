@@ -147,7 +147,8 @@
         // Call the hub so it uses the per-window sessionId you already wired.
         try
         {
-            await JS.InvokeAsync<JsonElement>("putdocPresence.acquireWriter", true);
+            var v = await JS.InvokeAsync<JsonElement>("putdocAcquireWriter", true);
+
             //await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', true)");
         }
         catch { /* noop */ }
@@ -155,9 +156,16 @@
 
     async Task ReleaseControl()
     {
-        try { await JS.InvokeVoidAsync("putdocPresence.releaseWriter"); }
+        try
+        {
+            await JS.InvokeVoidAsync("putdocReleaseWriter");
+        }
         //try { await JS.InvokeVoidAsync("eval", "window.putdocEnh.getHub()?.invokeMethodAsync('ReleaseDocWriter')"); }
-        catch { /* noop */ }
+        catch (Exception E)
+        {
+            /* noop */ 
+            
+        }
     }
     
     void ExportJson()
@@ -169,27 +177,31 @@
     public void Dispose()
     {
         _ = JS.InvokeVoidAsync("putdocPresence.releaseWriter");
-        
+
         State.Changed -= OnStateChanged;
         Writers.WriterChanged -= OnWriterChanged;
+
+        State.UiReset -= StateOnUiReset;
     }
+
 }
 
 @code {
-     private ElementReference _layoutRef;
+    private ElementReference _layoutRef;
      string? loadError;
      
      [Parameter] public Guid? docId { get; set; }
 
      // Track last applied + last requested to avoid duplicate loads
      private Guid? _lastAppliedDocId;
-     private Guid? _lastRequestedDocId;
-
-     // Coalesce duplicate in-flight loads of the same doc
-     private Task? _inFlightLoad;
-     private Guid? _inFlightDocId;
 
      private bool _navigatedToDefault;
+
+     private void StateOnUiReset()
+     {
+         loadError = null;
+         _writerAcquiredFor = null;
+     }
 
      
      
@@ -247,28 +259,13 @@
          }
      } */
 
+     Guid? toLoad = null;
+     
      protected override async Task OnParametersSetAsync()
      {
          if (docId is Guid id)
          {
-             string lastLoadedDocId;
-             if (_lastAppliedDocId == null) lastLoadedDocId = "NULL";
-             else lastLoadedDocId = _lastAppliedDocId.ToString();
-             Console.WriteLine($"[Index] OnParametersSet: docId={docId} lastApplied={lastLoadedDocId}");
-
-             // One line – coalesces duplicate calls within the circuit
-             await State.EnsureLoadedAsync(id);
-                 
-                 
-                 //await InvokeAsync(StateHasChanged);
-                 //State.Notify();
-
-                 // After successful load, mark applied
-             _lastAppliedDocId = id;
-             
-             State.Notify();
-             Console.WriteLine($"[index] docId={docId} (Applied={_lastAppliedDocId?.ToString() ?? "NULL"})");
-
+             toLoad = id;
              return;
          }
 
@@ -283,7 +280,7 @@
      protected override async Task OnInitializedAsync()
      {
          State.Changed += OnStateChanged;
-
+         State.UiReset += StateOnUiReset;
          Writers.WriterChanged += OnWriterChanged;
      }
     
@@ -296,32 +293,122 @@
     bool isDirtyOrFrozen() =>  State.IsDirty || (State.IsFrozen != null ? State.IsFrozen() : false);
 
     public Guid? _writerAcquiredFor = null;
+
+    /*
     
+    public async Task DelayLoad()
+    {
+        if (!await JS.InvokeAsync<bool>("putdocEnh.hasHub")) StateHasChanged();
+        else if (toLoad is Guid id)
+        {
+            string lastLoadedDocId;
+            if (_lastAppliedDocId == null) lastLoadedDocId = "NULL";
+            else lastLoadedDocId = _lastAppliedDocId.ToString();
+            Console.WriteLine($"[Index] OnParametersSet: docId={docId} lastApplied={lastLoadedDocId}");
+
+            await State.NotifyAsync(async () =>
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("putdocReleaseWriter");
+                }
+                catch
+                {
+                }
+
+                // 2) Reset all component-local UI state
+                State.TriggerUiReset();
+
+                // One line – coalesces duplicate calls within the circuit
+                await State.EnsureLoadedAsync(id);
+                
+                // After successful load, mark applied
+                _lastAppliedDocId = id;
+                toLoad = null;
+                
+                //_ = Task.Yield();
+            });
+
+            Console.WriteLine($"[index] docId={docId} (Applied={_lastAppliedDocId?.ToString() ?? "NULL"})");                    
+        }*/
+    
+    public async Task DelayLoad()
+    {
+        if (toLoad is not Guid id) return;
+
+        // Wait one frame for the hub (or bail after timeout)
+        var hubReady = await JS.InvokeAsync<bool>("putdocWaitForHub", 3000);
+        
+        /*
+        bool hubReady;
+
+        do
+        {
+            hubReady = await JS.InvokeAsync<bool>("putdocEnh.hasHub");
+            if (!hubReady)
+            {
+                await Task.Yield();
+                //StateHasChanged();
+                //return;
+                // Fallback: proceed anyway; ToolbarHub will still come up later
+                // or you can return and let OnAfterRender try again.
+            }
+        } while (!hubReady);
+        */
+        Console.WriteLine($"[Index] DelayLoad -> docId={id} lastApplied={_lastAppliedDocId?.ToString() ?? "NULL"}");
+
+        // Important: clear toLoad *before* heavy work to avoid accidental re-entry
+        var loadId = id;
+        toLoad = null;
+
+        await State.NotifyAsync(async () =>
+        {
+            try { await JS.InvokeVoidAsync("putdocReleaseWriter"); } catch { /* noop */ }
+
+            State.TriggerUiReset();
+
+            // Coalesced loader (safe to call even if another call is in-flight)
+            await State.EnsureLoadedAsync(loadId);
+
+            _lastAppliedDocId = loadId;
+        });
+
+        Console.WriteLine($"[Index] Applied={_lastAppliedDocId}");
+    }
+
+
      protected override async Task OnAfterRenderAsync(bool firstRender)
      {
+         await DelayLoad();
+         
          // Acquire doc writer once per loaded doc, after it’s on screen
          if (_lastAppliedDocId is Guid id && _writerAcquiredFor != id)
          {
-             _writerAcquiredFor = id;
-             try
+             var o = await JS.InvokeAsync<object>("putdocEnh.getHub");
+             if (o != null)
              {
-                 var v = await JS.InvokeAsync<JsonElement>("putdocAcquireWriter");
-                 var isWriter = v.ValueKind == JsonValueKind.Object
-                                && v.TryGetProperty("status", out var s)
-                                && s.GetString() == "writer";
+                 try
+                 {
+                     var v = await JS.InvokeAsync<JsonElement>("putdocAcquireWriter", false);
+                     var isWriter = v.ValueKind == JsonValueKind.Object
+                                    && v.TryGetProperty("status", out var s)
+                                    && s.GetString() == "writer";
+                     //_writerAcquiredFor = isWriter ? id : null;
+                     _writerAcquiredFor = id;
+                 }
+                 catch
+                 {
+                     /* swallow – not fatal */
+                 }
              }
-             catch { /* swallow – not fatal */ }
          }
          
-         if (!firstRender) return;
          if (firstRender)
          {
              _selfRef = DotNetObjectReference.Create(this);
              await JS.InvokeVoidAsync("putdocNav.bindBeforeUnload", isDirtyOrFrozen());
                  //(Func<bool>)(() => State.IsDirty || State.IsFrozen()));
          }
-         
-         
          
          // The layout exists only after the doc/page is loaded.
          if (!_splittersInited && State.Doc is not null && (State.Doc.Collections?.Count ?? 0) > 0)

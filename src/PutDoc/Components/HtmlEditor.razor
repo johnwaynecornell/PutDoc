@@ -254,6 +254,8 @@
         State.CheckpointRequested += OnCheckpointRequested;   // <—
         State.SaveRequested          += OnSaveRequested;
         State.ContextChangeRequested += OnContextChangeRequestedAsync;
+        State.UiReset += OnUiReset;
+
         // Hand the frozen flag to State for centralized checks
         State.IsFrozen = () => _isFrozen;
         // In HtmlEditor.razor
@@ -275,6 +277,39 @@
 
     private void OnStateChanged() => _ = InvokeAsync(() => SyncFromStateAsync(force: false));
 
+    private void OnUiReset()
+    {
+        // stop timers
+        _debounce?.Stop();
+        _debounce?.Dispose();
+        _debounce = null;
+
+        // clear editor-local state
+        editorText = "";
+        _isSaving = false;
+        _pendingSave = false;
+        _savingSnapshot = null;
+        _saveState = SaveState.Idle;
+
+        _isFragmentMode = false;
+        _fragScope = PutDocState.FragmentScope.Inner;
+
+        _lastSnippetId = null;
+        _lastSeenContentVersion = 0;
+
+        _inputSerial = 0;
+        _inputSerialAtSave = 0;
+        _saveEpoch = 0;
+        _editVersion = 0;
+
+        // undo/redo
+        _undo.Clear();
+        _redo.Clear();
+        _lastCheckpointText = "";
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+    
     private async Task ToggleScope()
     {
         if (!await State.EnsureClearForTextChangeInternalAsync()) return;
@@ -704,6 +739,7 @@
         State.CheckpointRequested -= OnCheckpointRequested;   // <—
         State.SaveRequested          -= OnSaveRequested;
         State.ContextChangeRequested -= OnContextChangeRequestedAsync;
+        State.UiReset -= OnUiReset;
         
         if (_debounce is not null)
         {

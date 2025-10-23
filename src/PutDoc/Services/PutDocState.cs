@@ -38,8 +38,9 @@ public class PutDocState
     }
 
     // PutDocState.cs
-    private bool _isWriteBlocked = true;
+    private bool? _isWriteBlocked = null;
     private bool _needsRepairReview;
+
 
     public bool NeedsRepairReview
     {
@@ -52,13 +53,13 @@ public class PutDocState
         }
     }
 
-    public bool IsReadOnly => _needsRepairReview || _isWriteBlocked;
+    public bool IsReadOnly => _needsRepairReview || (_isWriteBlocked != null ? (bool) _isWriteBlocked : false);
 
 // --- Public API ---
 
     public void SetWriteBlock(bool blocked)
     {
-        if (_isWriteBlocked == blocked) return;
+        if (_isWriteBlocked != null && ((bool)_isWriteBlocked == blocked)) return;
         _isWriteBlocked = blocked;
         UpdateReadOnlyAndNotifyIfChanged();
     }
@@ -161,6 +162,16 @@ public class PutDocState
     public async Task NotifyAsync(Func<Task> mutation)
     {
         using (BeginBatch()) await mutation();
+    }
+
+    public event Action? UiReset;
+
+    public void TriggerUiReset()
+    {
+        UiReset?.Invoke();
+        
+        //_isWriteBlocked = null;
+        _needsRepairReview = false;
     }
 
     // explicit batch (nestable)

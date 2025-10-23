@@ -5,6 +5,8 @@
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
+@implements IDisposable
+
 <h3 class="font-semibold mb-2">WorkPane — Snippets in Page</h3>
 
 @if (_staleStructural)
@@ -135,10 +137,19 @@ else
     protected override void OnInitialized()
     {
         State.Changed += OnStateChanged;
+        State.UiReset += OnUiReset;
         Invalidations.Invalidated += OnInvalidated;
     }
     
     void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+    
+    private void OnUiReset()
+    {
+        // Clear selection highlight & close toolbars
+        _ = JS.InvokeVoidAsync("putdocEnh.clearSelected");
+        _ = JS.InvokeVoidAsync("putdocEnh.closeAllToolbars");
+        _ = InvokeAsync(StateHasChanged);
+    }
     
     private void OnInvalidated(Guid docId, string actorSessionId, bool structural, int newRev)
     {
@@ -153,6 +164,7 @@ else
     {
         State.Changed -= OnStateChanged;
         Invalidations.Invalidated -= OnInvalidated;
+        State.UiReset -= OnUiReset;
     }
     
     protected override async Task OnAfterRenderAsync(bool firstRender)

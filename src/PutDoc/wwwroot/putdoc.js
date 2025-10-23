@@ -1,5 +1,7 @@
 (function () {
-    function uuid() { return 'p' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'') : (Date.now()+Math.random()).toString(36)); }
+    function uuid() {
+        return 'p' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : (Date.now() + Math.random()).toString(36));
+    }
 
     window.putdoc = window.putdoc || {};
     window.putdoc.readClipboardText = async function () {
@@ -14,33 +16,51 @@
         return '';
     };
 
-    window.putdoc.getClientId = function() {
+    window.putdoc.getClientId = function () {
         try {
             let id = localStorage.getItem("pd.clientId");
-            if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now()+Math.random()).toString(36)); localStorage.setItem("pd.clientId", id); }
+            if (!id) {
+                id = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + Math.random()).toString(36));
+                localStorage.setItem("pd.clientId", id);
+            }
             return id;
-        } catch { return "anon-" + Math.random().toString(36).slice(2); }
+        } catch {
+            return "anon-" + Math.random().toString(36).slice(2);
+        }
     };
 
     window.putdoc.getSessionId = function () {
         try {
             let id = sessionStorage.getItem("pd.sessionId");
-            if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)); sessionStorage.setItem("pd.sessionId", id); }
+            if (!id) {
+                id = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+                sessionStorage.setItem("pd.sessionId", id);
+            }
             return id;
-        } catch { return "sess-" + Math.random().toString(36).slice(2); }
+        } catch {
+            return "sess-" + Math.random().toString(36).slice(2);
+        }
     };
 
 
     // putdoc.js
     window.putdocLayout = (function () {
-        function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-        function px(n) { return `${Math.round(n)}px`; }
+        function clamp(v, min, max) {
+            return Math.max(min, Math.min(max, v));
+        }
+
+        function px(n) {
+            return `${Math.round(n)}px`;
+        }
 
         function resolve(elOrSelector) {
             if (!elOrSelector) return null;
             if (typeof elOrSelector === 'string') return document.querySelector(elOrSelector);
             // If Blazor ElementReference is passed and is already a DOM node, just use it
-            try { if (elOrSelector && elOrSelector.querySelector) return elOrSelector; } catch {}
+            try {
+                if (elOrSelector && elOrSelector.querySelector) return elOrSelector;
+            } catch {
+            }
             return null;
         }
 
@@ -64,7 +84,8 @@
                 const savedH = localStorage.getItem('putdoc.editorH');
                 if (savedW) el.style.setProperty('--index-w', savedW);
                 if (savedH) el.style.setProperty('--editor-h', savedH);
-            } catch {}
+            } catch {
+            }
 
             const vSplit = el.querySelector('[data-role="v-split"]');
             const hSplit = el.querySelector('[data-role="h-split"]');
@@ -93,13 +114,15 @@
                         el.style.setProperty('--editor-h', px(h));
                     }
                 }
+
                 function onUp() {
                     try {
                         const iw = getComputedStyle(el).getPropertyValue('--index-w').trim();
                         const eh = getComputedStyle(el).getPropertyValue('--editor-h').trim();
                         localStorage.setItem('putdoc.indexW', iw);
                         localStorage.setItem('putdoc.editorH', eh);
-                    } catch {}
+                    } catch {
+                    }
                     document.removeEventListener('mousemove', onMove);
                     document.removeEventListener('mouseup', onUp);
                     document.removeEventListener('touchmove', onMove);
@@ -109,14 +132,14 @@
 
                 document.addEventListener('mousemove', onMove);
                 document.addEventListener('mouseup', onUp);
-                document.addEventListener('touchmove', onMove, { passive: false });
+                document.addEventListener('touchmove', onMove, {passive: false});
                 document.addEventListener('touchend', onUp);
             }
 
             if (vSplit && !vSplit._pdKeybound) {
                 vSplit._pdKeybound = true;
                 vSplit.addEventListener('mousedown', (e) => startDrag(e, 'x'));
-                vSplit.addEventListener('touchstart', (e) => startDrag(e, 'x'), { passive: false });
+                vSplit.addEventListener('touchstart', (e) => startDrag(e, 'x'), {passive: false});
                 vSplit.addEventListener('keydown', (e) => {
                     const step = (e.shiftKey ? 40 : 16);
                     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -125,7 +148,10 @@
                         const delta = (e.key === 'ArrowLeft' ? -step : step);
                         const w = clamp(cur + delta, 240, Math.min(window.innerWidth * 0.6, el.getBoundingClientRect().width - 240));
                         el.style.setProperty('--index-w', px(w));
-                        try { localStorage.setItem('putdoc.indexW', px(w)); } catch {}
+                        try {
+                            localStorage.setItem('putdoc.indexW', px(w));
+                        } catch {
+                        }
                     }
                 });
             }
@@ -133,7 +159,7 @@
             if (hSplit && !hSplit._pdKeybound) {
                 hSplit._pdKeybound = true;
                 hSplit.addEventListener('mousedown', (e) => startDrag(e, 'y'));
-                hSplit.addEventListener('touchstart', (e) => startDrag(e, 'y'), { passive: false });
+                hSplit.addEventListener('touchstart', (e) => startDrag(e, 'y'), {passive: false});
                 hSplit.addEventListener('keydown', (e) => {
                     const step = (e.shiftKey ? 40 : 16);
                     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -142,13 +168,16 @@
                         const delta = (e.key === 'ArrowUp' ? -step : step);
                         const h = clamp(cur + delta, 200, Math.min(window.innerHeight * 0.75, el.getBoundingClientRect().height - 200));
                         el.style.setProperty('--editor-h', px(h));
-                        try { localStorage.setItem('putdoc.editorH', px(h)); } catch {}
+                        try {
+                            localStorage.setItem('putdoc.editorH', px(h));
+                        } catch {
+                        }
                     }
                 });
             }
         }
 
-        return { initSplitters };
+        return {initSplitters};
     })();
 
 
@@ -159,6 +188,7 @@
             //const h = 0;
             document.documentElement.style.setProperty('--topbar-h', `${h}px`);
         }
+
         function init() {
             setHeaderVar();
             // Recompute on resize / font load / layout changes
@@ -166,45 +196,53 @@
             // Some layouts change height after first render
             setTimeout(setHeaderVar, 0);
         }
-        return { init };
+
+        return {init};
     })();
 
 
     // Ensure namespace
     window.putdocText = window.putdocText || (window.putdocText = ({}));
 
-    (function(ns){
+    (function (ns) {
         // WeakMap: textarea -> { start, end }
         const caretCache = new WeakMap();
 
         function updateCache(ta) {
             try {
-                caretCache.set(ta, { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 });
-            } catch { /* noop */ }
+                caretCache.set(ta, {start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0});
+            } catch { /* noop */
+            }
         }
 
-        ns.initEditor = function(ta) {
+        ns.initEditor = function (ta) {
             // keep your existing tab indent if available
             if (typeof ns.bindTabIndent === 'function') {
-                try { ns.bindTabIndent(ta); } catch {}
+                try {
+                    ns.bindTabIndent(ta);
+                } catch {
+                }
             }
             // seed + track caret on typical events
             updateCache(ta);
             // In putdocText module (augment the tracker you added earlier)
-            ['beforeinput','input','keyup','mouseup','pointerup','select','focus'].forEach(evt =>
+            ['beforeinput', 'input', 'keyup', 'mouseup', 'pointerup', 'select', 'focus'].forEach(evt =>
                 ta.addEventListener(evt, () => updateCache(ta))
             );
 
             // if focus is regained, refresh
-            ta.addEventListener('focus', () => updateCache(ta), { passive: true });
+            ta.addEventListener('focus', () => updateCache(ta), {passive: true});
         };
 
-        ns.getCachedSel = function(ta){
+        ns.getCachedSel = function (ta) {
             const s = caretCache.get(ta);
             if (s) return s;
             // fallback to live read
-            try { return { start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0 }; }
-            catch { return { start: 0, end: 0 }; }
+            try {
+                return {start: ta.selectionStart ?? 0, end: ta.selectionEnd ?? 0};
+            } catch {
+                return {start: 0, end: 0};
+            }
         };
 
         ns.setSelSmooth = function (ta, start, end) {
@@ -213,7 +251,8 @@
                     try {
                         ta.setSelectionRange(start, end);
                         ta.focus();
-                    } catch {}
+                    } catch {
+                    }
                 });
             });
         };
@@ -225,44 +264,53 @@
             // Clamp to current value length to avoid DOM exceptions
             const len = (ta.value && ta.value.length) || 0;
             start = Math.max(0, Math.min(start ?? 0, len));
-            end   = Math.max(0, Math.min(end   ?? start, len));
-             
+            end = Math.max(0, Math.min(end ?? start, len));
+
             return new Promise((resolve) => {
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
                         try {
                             ta.setSelectionRange(start, end);
                             ta.focus();
-                        } catch { }
+                        } catch {
+                        }
 
                         // Update cache optimistically
-                        try { caretCache.set(ta, { start, end }); } catch {}
+                        try {
+                            caretCache.set(ta, {start, end});
+                        } catch {
+                        }
 
                         // Verify; if it didn't take, try one corrective pass
                         try {
                             const curStart = ta.selectionStart ?? 0;
-                            const curEnd   = ta.selectionEnd   ?? 0;
+                            const curEnd = ta.selectionEnd ?? 0;
                             if (curStart !== start || curEnd !== end) {
                                 requestAnimationFrame(() => {
                                     try {
                                         ta.setSelectionRange(start, end);
                                         ta.focus();
-                                    } catch {}
-                                    try { caretCache.set(ta, { start, end }); } catch {}
+                                    } catch {
+                                    }
+                                    try {
+                                        caretCache.set(ta, {start, end});
+                                    } catch {
+                                    }
                                     resolve();
                                 });
                                 return;
                             }
-                        } catch { }
+                        } catch {
+                        }
                         resolve();
                     });
-                }); 
-            }); 
+                });
+            });
         };
 
 
     })(window.putdocText);
-    
+
     window.putdocText.bindTabIndent = function (ta) {
         if (!ta || ta._putdocTabBound) return;
         ta._putdocTabBound = true;
@@ -274,8 +322,8 @@
         });
     };
 
-    window.putdocText.indent= function (ta, outdent) {
-        
+    window.putdocText.indent = function (ta, outdent) {
+
         const el = ta;
         const start = el.selectionStart, end = el.selectionEnd;
         const value = el.value;
@@ -306,7 +354,7 @@
             }
         }
         // fire input so Blazor picks it up
-        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('input', {bubbles: true}));
     };
 
     window.putdocText.getSel = (ta) => {
@@ -316,14 +364,18 @@
         };
     };
     //window.putdocText.getSel = (ta) => [ta.selectionStart, ta.selectionEnd];
-    window.putdocText.setSel = (ta, s, e) => { ta.selectionStart = s; ta.selectionEnd = e; ta.focus(); };
+    window.putdocText.setSel = (ta, s, e) => {
+        ta.selectionStart = s;
+        ta.selectionEnd = e;
+        ta.focus();
+    };
 
     window.putdocText.insertAtCaret = (ta, text) => {
         const s = ta.selectionStart, e = ta.selectionEnd;
         ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
         const pos = s + text.length;
         ta.selectionStart = ta.selectionEnd = pos;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('input', {bubbles: true}));
         ta.focus();
     };
 
@@ -336,11 +388,11 @@
 
         // keep selection on the original content
         const newStart = s + before.length;
-        const newEnd   = newStart + selected.length;
+        const newEnd = newStart + selected.length;
         ta.selectionStart = newStart;
-        ta.selectionEnd   = newEnd;
+        ta.selectionEnd = newEnd;
 
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        ta.dispatchEvent(new Event('input', {bubbles: true}));
         ta.focus();
     };
 
@@ -380,7 +432,10 @@
 
     window.putdocText.unbindEditorShortcuts = function (ta) {
         if (!ta || !ta._pdKeysBound) return;
-        try { ta._pdKeysCleanup && ta._pdKeysCleanup(); } catch {}
+        try {
+            ta._pdKeysCleanup && ta._pdKeysCleanup();
+        } catch {
+        }
         ta._pdKeysBound = false;
         delete ta._pdKeysCleanup;
     };
@@ -419,7 +474,10 @@
 
     window.putdocText.unbindEditorShortcuts = function (ta) {
         if (!ta || !ta._pdKeysBound) return;
-        try { ta._pdKeysCleanup && ta._pdKeysCleanup(); } catch {}
+        try {
+            ta._pdKeysCleanup && ta._pdKeysCleanup();
+        } catch {
+        }
         ta._pdKeysBound = false;
         delete ta._pdKeysCleanup;
     };
@@ -433,9 +491,10 @@
             rafId = 0;
             try {
                 const start = ta.selectionStart ?? 0;
-                const end   = ta.selectionEnd   ?? start;
+                const end = ta.selectionEnd ?? start;
                 dotnetRef && dotnetRef.invokeMethodAsync('NotifyCaretChanged', start, end);
-            } catch {}
+            } catch {
+            }
         };
 
         const onMove = () => {
@@ -444,12 +503,12 @@
             rafId = requestAnimationFrame(fire);
         };
 
-        ['keyup','mouseup','select','focus','beforeinput','input'].forEach(ev =>
-            ta.addEventListener(ev, onMove, { passive: true })
+        ['keyup', 'mouseup', 'select', 'focus', 'beforeinput', 'input'].forEach(ev =>
+            ta.addEventListener(ev, onMove, {passive: true})
         );
 
         ta._pdCaretNotifyCleanup = () => {
-            ['keyup','mouseup','select','focus','beforeinput','input'].forEach(ev =>
+            ['keyup', 'mouseup', 'select', 'focus', 'beforeinput', 'input'].forEach(ev =>
                 ta.removeEventListener(ev, onMove)
             );
             if (rafId) cancelAnimationFrame(rafId);
@@ -459,18 +518,64 @@
 
     window.putdocText.unbindCaretNotify = function (ta) {
         if (!ta || !ta._pdCaretNotifyBound) return;
-        try { ta._pdCaretNotifyCleanup && ta._pdCaretNotifyCleanup(); } catch {}
+        try {
+            ta._pdCaretNotifyCleanup && ta._pdCaretNotifyCleanup();
+        } catch {
+        }
         ta._pdCaretNotifyBound = false;
         delete ta._pdCaretNotifyCleanup;
     };
 
 
-
     window.putdocEnh = (function () {
-        let __hub = null; // DotNetObjectReference set by ToolbarHub once
+        let __hubRef = null; // DotNetObjectReference set by ToolbarHub once
         let __currentOpen = null;
-        function setHub(dotNetRef) { __hub = dotNetRef; }
-        function getHub() { return __hub; }
+
+        let __leaderId = null;
+
+// claim leadership for this component id (string). returns true if you are leader
+        function claimLeader(id) {
+            if (!__leaderId) {
+                __leaderId = id;
+                return true;
+            }
+            return __leaderId === id;
+        };
+
+        // release leadership if held by this id
+        function releaseLeader(id) {
+            if (__leaderId === id) __leaderId = null;
+        };
+
+        // Set/get/clear the single shared hub ref
+        function setHub(dotNetRef) {
+            // only the current leader may replace the hub
+            if (!__leaderId) return null; // no leader → ignore
+            __hubRef = dotNetRef;
+            return __hubRef;
+        };
+
+        function getHub() {
+            return __hubRef;
+        };
+
+        function clearHub(dotNetRef) {
+            if (__hubRef === dotNetRef) __hubRef = null;
+        };
+
+        function hasHub() {
+            return __hubRef != null;
+        };
+
+        // Optional helper used earlier in your code
+        function closeAllToolbars() {
+            document.querySelectorAll('.pd-inline-toolbar[data-open="true"]')
+                .forEach(shell => {
+                    shell.dataset.open = 'false';
+                    shell.setAttribute('aria-expanded', 'false');
+                });
+        };
+
 
         // Ensure container can host absolutely positioned toolbar
         function ensurePositioned(el) {
@@ -513,17 +618,22 @@
                 await navigator.clipboard.writeText(html);
             } catch {
                 const ta = document.createElement('textarea');
-                ta.value = html; document.body.appendChild(ta);
-                ta.select(); document.execCommand('copy'); ta.remove();
+                ta.value = html;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
             }
         }
 
         let __selectedPuid = null;
+
         function clearSelected() {
             if (!__selectedPuid) return;
             document.querySelectorAll('[data-selected="true"]').forEach(n => n.removeAttribute('data-selected'));
             __selectedPuid = null;
         }
+
         function markSelected(puid) {
             clearSelected();
             const el = document.querySelector(`[data-puid="${puid}"]`);
@@ -547,10 +657,11 @@
                 if (evt.key === 'Escape') closeCurrent(true);
             });
         })();
+
         function closeCurrent(refocus) {
             if (!__currentOpen) return;
             const shell = __currentOpen.querySelector('.pd-inline-toolbar');
-            const gear  = __currentOpen.querySelector('.pd-gear');
+            const gear = __currentOpen.querySelector('.pd-gear');
             if (shell) {
                 shell.dataset.open = 'false';
                 shell.setAttribute('aria-expanded', 'false');
@@ -559,7 +670,10 @@
             __currentOpen = null;
         }
 
-        function closeAllToolbars() { closeCurrent(true); }
+        function closeAllToolbars() {
+            closeCurrent(true);
+        }
+
         function openThis(host) {
             if (__currentOpen && __currentOpen !== host) closeCurrent(false);
             const shell = host.querySelector('.pd-inline-toolbar');
@@ -580,44 +694,44 @@
                     if (btn.disabled || btn.hasAttribute('disabled')) return;
 
                     const act = btn.getAttribute('data-act');
-                    if (!__hub || !act) return;
+                    if (!__hubRef || !act) return;
 
                     const isRO = panelEl.getAttribute('data-readonly');
-                    
+
                     // For edit actions, try acquire → prompt override if denied
                     if (act === 'edit-inner' || act === 'edit-outer') {
                         const kind = (act === 'edit-outer') ? 'fragment-outer' : 'fragment-inner';
                         if (isRO) {
-                            await __hub.invokeMethodAsync('OpenFragment', kind, puid, snippetId);
+                            await __hubRef.invokeMethodAsync('OpenFragment', kind, puid, snippetId);
                             closeCurrent(false);
                             return;
                         } else {
-                            let res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ false);
+                            let res = await __hubRef.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ false);
                             if (res?.status === 'denied') {
                                 // simple prompt; replace with your nicer UI if you like
                                 const ok = confirm(`Held by ${res.holder?.user ?? 'someone'}. Take over?`);
                                 if (!ok) return;
-                                res = await __hub.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ true);
+                                res = await __hubRef.invokeMethodAsync('AcquireForEdit', kind, puid, snippetId, /*force*/ true);
                                 if (res?.status !== 'granted' && res?.status !== 'stolen') return;
                             }
                         }
                     }
 
-                    const out = await __hub.invokeMethodAsync('Handle', act, puid, snippetId);
+                    const out = await __hubRef.invokeMethodAsync('Handle', act, puid, snippetId);
                     closeCurrent(false);
                 });
             });
         }
 
-        
+
         class PutDocToolbar extends HTMLElement {
             connectedCallback() {
                 if (this._wired) return;
                 this._wired = true;
 
                 const snippetId = this.getAttribute('snippet-id') || '';
-                const puid      = this.getAttribute('puid') || '';
-                const kind      = this.getAttribute('kind') || '';
+                const puid = this.getAttribute('puid') || '';
+                const kind = this.getAttribute('kind') || '';
 
                 this.classList.add('pd-toolbar-host');
                 this.innerHTML = `
@@ -627,21 +741,21 @@
       </span>
     `;
                 const shell = this.querySelector('.pd-inline-toolbar');
-                const gear  = this.querySelector('.pd-gear');
-                const slot  = this.querySelector('.pd-toolbar-panel-slot');
+                const gear = this.querySelector('.pd-gear');
+                const slot = this.querySelector('.pd-toolbar-panel-slot');
 
                 gear?.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    const isOpen = shell?.dataset.open === 'true';                     
+                    const isOpen = shell?.dataset.open === 'true';
 
                     if (!isOpen) {
                         requestAnimationFrame(() => {
                             gear.innerText = "▲";
                         });
-                        
+
                         // Always refetch fresh menu HTML — no caching
-                        if (!__hub) return;
-                        const html = await __hub.invokeMethodAsync('GetMenuHtml', kind, puid, snippetId);
+                        if (!__hubRef) return;
+                        const html = await __hubRef.invokeMethodAsync('GetMenuHtml', kind, puid, snippetId);
                         slot.innerHTML = html;
 
                         const root = slot.firstElementChild;
@@ -662,11 +776,12 @@
         }
 
         customElements.get('putdoc-toolbar') || customElements.define('putdoc-toolbar', PutDocToolbar);
-        
+
         // Enhance a container: add toolbar to each recognized element
         function enhance(container, snippetId) {
             if (!container) return;
-            const selectors = '.slf-card, .slf-brick, .prompt_area, pre, ul, ol, li';container.querySelectorAll(selectors).forEach(el => {
+            const selectors = '.slf-card, .slf-brick, .prompt_area, pre, ul, ol, li';
+            container.querySelectorAll(selectors).forEach(el => {
                 if (el.querySelector(':scope > putdoc-toolbar')) return;
                 ensurePositioned(el);
                 const puid = ensurePuid(el);
@@ -674,6 +789,7 @@
                 toolbar.setAttribute('snippet-id', snippetId);
                 toolbar.setAttribute('puid', puid);
                 toolbar.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
+                //el.innerHTML = `<div style="display=flex">${toolbar}<div class="pd-body">${el.innerHTML}</div>`
                 el.prepend(toolbar);
             });
         }
@@ -695,7 +811,7 @@
             }
             const mo = new MutationObserver(() => enhance(container, snippetId));
             container._pdObserver = mo;            // cache on the element
-            mo.observe(container, { childList: true, subtree: true });
+            mo.observe(container, {childList: true, subtree: true});
             enhance(container, snippetId);
             return mo;
         }
@@ -709,12 +825,78 @@
 
 
         return {
-            setHub,getHub,
+            claimLeader, releaseLeader,
+            setHub, getHub, clearHub, hasHub,
             enhance, observe, enhanceById, observeById,
             copyByPuid: copyByPuidClean,
-            clearSelected, markSelected, 
+            clearSelected, markSelected,
             closeAllToolbars
         };
+    })();
+    /*
+    // --- Hub singleton + per-tab leader election ---
+    (function () {
+        
+        window.putdocEnh = window.putdocEnh || {};
+    
+        // claim leadership for this component id (string). returns true if you are leader
+        window.putdocEnh.claimLeader = function (id) {
+            if (!__leaderId) { __leaderId = id; return true; }
+            return __leaderId === id;
+        };
+    
+        // release leadership if held by this id
+        window.putdocEnh.releaseLeader = function (id) {
+            if (__leaderId === id) __leaderId = null;
+        };
+    
+        // Set/get/clear the single shared hub ref
+        window.putdocEnh.setHub = function (dotNetRef) {
+            // only the current leader may replace the hub
+            if (!__leaderId) return null; // no leader → ignore
+            __hubRef = dotNetRef;
+            return __hubRef;
+        };
+        window.putdocEnh.getHub = function () { return __hubRef; };
+        window.putdocEnh.clearHub = function (dotNetRef) {
+            if (__hubRef === dotNetRef) __hubRef = null;
+        };
+    
+        window.putdocEnh.hasHub = function () { return __hubRef != null; };
+    
+        // Optional helper used earlier in your code
+        window.putdocEnh.closeAllToolbars = function () {
+            document.querySelectorAll('.pd-inline-toolbar[data-open="true"]')
+                .forEach(shell => { shell.dataset.open = 'false'; shell.setAttribute('aria-expanded','false'); });
+        };
+    })();*/
+// putdoc.js
+    (function () {
+        let hubResolve, hubReady = false;
+        const hubPromise = new Promise(res => hubResolve = res);
+
+        // expose
+        window.putdocEnh = window.putdocEnh || {};
+        const oldSetHub = window.putdocEnh.setHub;
+
+        window.putdocEnh.setHub = function (dotnetRef) {
+            if (typeof oldSetHub === "function") oldSetHub(dotnetRef);
+            // mark ready once
+            if (!hubReady) { hubReady = true; try { hubResolve(true); } catch {} }
+        };
+
+        // awaitable helper with timeout
+        window.putdocWaitForHub = function (timeoutMs = 3000) {
+            if (hubReady) return Promise.resolve(true);
+            let timer;
+            return Promise.race([
+                hubPromise,
+                new Promise(res => timer = setTimeout(() => res(false), timeoutMs))
+            ]).finally(() => { if (timer) clearTimeout(timer); });
+        };
+
+        // cheap “is it ready” check (kept for diagnostics)
+        window.putdocEnh.hasHub = function () { return !!hubReady; };
     })();
 
 
@@ -741,7 +923,8 @@
             try {
                 const layout = document.getElementById('putdocLayout');
                 if (layout) window.putdocLayout?.initSplitters(layout);
-            } catch {}
+            } catch {
+            }
         });
     })();
 
@@ -750,17 +933,18 @@
     window.putdocPresence.releaseCurrent = async function () {
         try {
             if (window.__pdToolbarHandlersInstalled && window.putdocEnh.getHub()) {
-                await window.window.putdocEnh.__hub.invokeMethodAsync('ReleaseCurrent');
+                await window.window.putdocEnh.__hubRef.invokeMethodAsync('ReleaseCurrent');
             } else if (window.putdocEnh && typeof window.putdocEnh.setHub === 'function') {
                 // no-op fallback if hub isn't ready
             }
-        } catch (e) { /* swallow */ }
+        } catch (e) { /* swallow */
+        }
     };
 
     window.putdocPresence.acquireSnippet = async function (snippetId, force) {
         try {
             const hub = window.window.putdocEnh.getHub();        // set in putdocEnh.setHub
-            if (!hub) return { status: "error", message: "hub not ready" };
+            if (!hub) return {status: "error", message: "hub not ready"};
 
             let res = await hub.invokeMethodAsync("AcquireForEdit", "snippet", "", snippetId, !!force);
             if (res?.status === "denied") {
@@ -769,17 +953,24 @@
                 res = await hub.invokeMethodAsync("AcquireForEdit", "snippet", "", snippetId, true);
             }
             return res;
-        } catch (e) { return { status: "error", message: String(e) }; }
+        } catch (e) {
+            return {status: "error", message: String(e)};
+        }
     };
 
-    window.putdocPresence.acquireWriter = async function(force) {
+    window.putdocPresence.acquireWriter = async function (force) {
         try {
             return await window.putdocEnh.getHub()?.invokeMethodAsync('AcquireDocWriter', !!force);
-        } catch { return { status: "error", message: "could not invoke AcquireDocWriter" }; }
+        } catch {
+            return {status: "error", message: "could not invoke AcquireDocWriter"};
+        }
     }
-    
-    window.putdocPresence.releaseWriter = async function() {
-        try { await window.putdocEnh.getHub()?.invokeMethodAsync('ReleaseDocWriter'); } catch {}
+
+    window.putdocPresence.releaseWriter = async function () {
+        try {
+            await window.putdocEnh.getHub()?.invokeMethodAsync('ReleaseDocWriter');
+        } catch {
+        }
     }
 
     window.putdocNav = {
@@ -791,24 +982,33 @@
                         e.returnValue = ''; // required for Chrome
                         return '';
                     }
-                } catch {}
+                } catch {
+                }
             };
             window.addEventListener('beforeunload', h);
             return () => window.removeEventListener('beforeunload', h);
         }
     };
 
-    window.putdocAcquireWriter = function () {
+    // put this in putdoc.js once
+    window.putdocAcquireWriter = async function (force) {
+        const hub = window.putdocEnh?.getHub?.();
+        if (!hub) return {status: "readonly", note: "no hub yet"};
         try {
-            const hub = window.putdocEnh && window.putdocEnh.getHub ? window.putdocEnh.getHub() : null;
-            if (hub && hub.invokeMethodAsync) {
-                return hub.invokeMethodAsync('AcquireDocWriter', false);
-            }
-        } catch (e) {
-            console.warn('AcquireDocWriter failed', e);
+            return await hub.invokeMethodAsync("AcquireDocWriter", !!force);
+        } catch {
+            return {status: "error"};
         }
     };
 
-
-
+    window.putdocReleaseWriter = async function () {
+        const hub = window.putdocEnh?.getHub?.();
+        if (!hub) return {status: "ok", note: "no hub"};
+        try {
+            return await hub.invokeMethodAsync("ReleaseDocWriter");
+        } catch {
+            return {status: "error"};
+        }
+    };
+    
 })();

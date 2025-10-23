@@ -98,7 +98,7 @@
     private void Ignore()
     {
         // Hide the banner but keep read-only to avoid saving a broken graph.
-        State.IgnoreRepairsKeepReadOnly();
+        _ = State.IgnoreRepairsKeepReadOnly();
         _summary = null;
         StateHasChanged();
     }
@@ -106,7 +106,7 @@
     private void Dismiss()
     {
         // User accepts the risk: enable editing
-        State.DismissAndEditAnyway();
+        _ = State.DismissAndEditAnyway();
         _summary = null;
         StateHasChanged();
     }
