@@ -778,21 +778,372 @@
         customElements.get('putdoc-toolbar') || customElements.define('putdoc-toolbar', PutDocToolbar);
 
         // Enhance a container: add toolbar to each recognized element
+        // function enhance(container, snippetId) {
+        //     if (!container) return;
+        //     const selectors = '.slf-card, .slf-brick, .prompt_area, pre, ul, ol, li';
+        //
+        //     container.querySelectorAll(selectors).forEach(el => {
+        //         // Reentrancy guard (prevents double-build from overlapping mutations)
+        //         if (el.dataset.pdEnhancing === '1') return;
+        //         el.dataset.pdEnhancing = '1';
+        //         try {
+        //             // Dedup: if we somehow have >1, keep the first and remove extras
+        //             const allBars = el.querySelectorAll(':scope > putdoc-toolbar');
+        //             if (allBars.length > 1) {
+        //                 for (let i = 1; i < allBars.length; i++) allBars[i].remove();
+        //             }
+        //             if (allBars.length === 1) {
+        //                 // Already enhanced — keep it up to date and exit
+        //                 const tb = allBars[0];
+        //                 const puid = ensurePuid(el);
+        //                 tb.setAttribute('snippet-id', snippetId);
+        //                 tb.setAttribute('puid', puid);
+        //                 tb.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
+        //                 // ensure single .pd-body wrapper (idempotent)
+        //                 let body = el.querySelector(':scope > .pd-body');
+        //                 if (!body) {
+        //                     body = document.createElement('div');
+        //                     body.className = 'pd-body';
+        //                     for (let n = tb.nextSibling; n; ) {
+        //                         const next = n.nextSibling;
+        //                         body.appendChild(n);
+        //                         n = next;
+        //                     }
+        //                     el.appendChild(body);
+        //                 } else console.warn('pd-body already exists');
+        //                 return; // done
+        //             }
+        //
+        //             // No toolbar yet → create
+        //             ensurePositioned(el);
+        //             const puid = ensurePuid(el);
+        //
+        //             const tb = document.createElement('putdoc-toolbar');
+        //             tb.setAttribute('snippet-id', snippetId);
+        //             tb.setAttribute('puid', puid);
+        //             tb.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
+        //             tb.dataset.for = puid; // optional “for” binding, useful if you ever need to query by puid
+        //
+        //             el.prepend(tb);
+        //
+        //             // Wrap remaining children into .pd-body exactly once
+        //             let body = el.querySelector(':scope > .pd-body');
+        //             if (!body) {
+        //                 body = document.createElement('div');
+        //                 body.className = 'pd-body';
+        //                 for (let n = tb.nextSibling; n; ) {
+        //                     const next = n.nextSibling;
+        //                     body.appendChild(n);
+        //                     n = next;
+        //                 }
+        //                 el.appendChild(body);
+        //             }
+        //         } finally {
+        //             el.dataset.pdEnhancing = ''; // clear guard
+        //         }
+        //     });
+        // }
+
+        // function enhance(container, snippetId) {
+        //     if (!container) return;
+        //
+        //     const selectors = '.slf-card, .slf-brick, .prompt_area, pre, ul, ol, li';
+        //     container.querySelectorAll(selectors).forEach(el => {
+        //         // Already enhanced? (only check for a direct child toolbar)
+        //         if (el.querySelector(':scope > putdoc-toolbar')) return;
+        //
+        //         if (el.dataset.pdEnhancing === '1') return;
+        //         el.dataset.pdEnhancing = '1';
+        //
+        //         // Dedup: if we somehow have >1, keep the first and remove extras
+        //         const allBars = el.querySelectorAll(':scope > putdoc-toolbar');
+        //         if (allBars.length > 1) {
+        //             for (let i = 1; i < allBars.length; i++) allBars[i].remove();
+        //         }
+        //        
+        //         if (allBars.length === 1) {
+        //             // Already enhanced — keep it up to date and exit
+        //             const tb = allBars[0];
+        //             const puid = ensurePuid(el);
+        //             tb.setAttribute('snippet-id', snippetId);
+        //             tb.setAttribute('puid', puid);
+        //             tb.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
+        //             // ensure single .pd-body wrapper (idempotent)
+        //             let body = el.querySelector(':scope > .pd-body');
+        //             if (!body) {
+        //                 body = document.createElement('div');
+        //                 body.className = 'pd-body';
+        //                 for (let n = tb.nextSibling; n; ) {
+        //                     const next = n.nextSibling;
+        //                     body.appendChild(n);
+        //                     n = next;
+        //                 }
+        //                 el.appendChild(body);
+        //             } else  el.prepend(tb);
+        //            
+        //             el.dataset.pdEnhancing = ''; // clear guard
+        //             return; // done
+        //         }
+        //
+        //         const puid = ensurePuid(el);
+        //
+        //         // Create toolbar
+        //         const tb = document.createElement('putdoc-toolbar');
+        //         tb.classList.add('pd-toolbar-host'); // (optional—helps with styling)
+        //         tb.setAttribute('snippet-id', snippetId);
+        //         tb.setAttribute('puid', puid);
+        //         tb.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
+        //
+        //         // Branch per host kind
+        //         const tag = el.tagName;
+        //         if (tag === 'LI') {
+        //             // ----- LIST ITEM: keep marker on the li; wrap inner content so gear aligns on wrap
+        //             let row = el.querySelector(':scope > .pd-row');
+        //             if (!row) {
+        //                 row = document.createElement('div');
+        //                 row.className = 'pd-row';
+        //                 // Place row right at the start; but insert toolbar first so we can move siblings easily
+        //                 el.insertBefore(row, el.firstChild);
+        //             }
+        //
+        //             // Ensure toolbar is first in the row
+        //             if (!row.querySelector(':scope > putdoc-toolbar')) {
+        //                 row.appendChild(tb);
+        //             }
+        //
+        //             // Gather body after toolbar and move remaining siblings into it
+        //             let body = row.querySelector(':scope > .pd-body');
+        //             if (!body) {
+        //                 body = document.createElement('div');
+        //                 body.className = 'pd-body';
+        //
+        //                 // Move all siblings of the toolbar (in the LI, not in row) into body
+        //                 // First, ensure tb is inside row (it is), then sweep nodes after tb in LI into body
+        //                 // We need to move everything except the .pd-row itself (which we just created)
+        //                 // So: move all direct children of LI that are not .pd-row into body
+        //                 for (let n = el.firstChild; n; ) {
+        //                     const next = n.nextSibling;
+        //                     if (n !== row) body.appendChild(n);
+        //                     n = next;
+        //                 }
+        //                 row.appendChild(body);
+        //             } else 
+        //             el.dataset.pdEnhancing = ''; // clear guard
+        //             return;
+        //         }
+        //
+        //         if (tag === 'UL' || tag === 'OL' || tag === 'PRE') {
+        //             // ----- BLOCK WRAP: single toolbar for the whole block, keep native list/whitespace behavior
+        //             let wrap = el.parentElement?.classList.contains('pd-row-wrap')
+        //                 ? el.parentElement
+        //                 : null;
+        //
+        //             if (!wrap) {
+        //                 wrap = document.createElement('div');
+        //                 wrap.className = 'pd-row-wrap';
+        //                 // Insert wrapper before the list/pre and move the block inside
+        //                 el.parentNode.insertBefore(wrap, el);
+        //                 wrap.appendChild(tb);
+        //                 wrap.appendChild(el);
+        //             } else {
+        //                 // Already wrapped — ensure toolbar exists once
+        //                 if (!wrap.querySelector(':scope > putdoc-toolbar')) {
+        //                     wrap.insertBefore(tb, wrap.firstChild);
+        //                 }
+        //             }
+        //             el.dataset.pdEnhancing = ''; // clear guard
+        //             return;
+        //         }
+        //
+        //         // ----- DEFAULT: non-list hosts (cards, bricks, prompt_area, pre)
+        //         // Make the host itself a row: toolbar + body
+        //         // If it already has a .pd-body we leave it; otherwise create and move children.
+        //         let body = el.querySelector(':scope > .pd-body');
+        //         if (!body) {
+        //             body = document.createElement('div');
+        //             body.className = 'pd-body';
+        //
+        //             // Insert toolbar first, then move rest of children into body
+        //             el.prepend(tb);
+        //
+        //             for (let n = tb.nextSibling; n; ) {
+        //                 const next = n.nextSibling;
+        //                 body.appendChild(n);
+        //                 n = next;
+        //             }
+        //             el.appendChild(body);
+        //         } else {
+        //             // body exists — ensure toolbar is first
+        //             el.insertBefore(tb, el.firstChild);
+        //         }
+        //         el.dataset.pdEnhancing = ''; // clear guard
+        //     });
+        // }
+
+        const PD_ENHANCED  = 'pdEnhanced';
+        const PD_ENHANCING = 'pdEnhancing';
+
+        function beginEnhancing(el) {
+            if (el.dataset[PD_ENHANCED] === '1' || el.dataset[PD_ENHANCING] === '1') return false;
+            el.dataset[PD_ENHANCING] = '1';
+            return true;
+        }
+        function finishEnhancing(el) {
+            el.dataset[PD_ENHANCED] = '1';
+            delete el.dataset[PD_ENHANCING];
+        }
+
+        function ensureSingleToolbar(parent) {
+            const list = parent.querySelectorAll(':scope > putdoc-toolbar');
+            if (list.length > 1) {
+                for (let i = 1; i < list.length; i++) list[i].remove();
+            }
+            return list[0] || null;
+        }
+
+        function wrapBlockWithToolbar(el, tb, puid) {
+            // If already wrapped for this element, just ensure a single toolbar and bail
+            const parent = el.parentElement;
+            if (parent && parent.classList.contains('pd-row-wrap') && parent.dataset.forPuid === puid) {
+                if (!parent.querySelector(':scope > putdoc-toolbar')) {
+                    parent.insertBefore(tb, parent.firstChild);
+                } else {
+                    // de-dupe toolbars at wrapper level
+                    const list = parent.querySelectorAll(':scope > putdoc-toolbar');
+                    for (let i = 1; i < list.length; i++) list[i].remove();
+                }
+                return;
+            }
+
+            // Fresh wrap (atomic): replace el with wrapper, then append el into wrapper
+            const wrap = document.createElement('div');
+            wrap.className = 'pd-row-wrap';
+            wrap.dataset.forPuid = puid;
+
+            // Move el into wrap at exactly the same position
+            el.replaceWith(wrap);
+            wrap.appendChild(el);
+
+            // Insert toolbar at the start (de-dupe not needed on fresh wrap)
+            wrap.insertBefore(tb, wrap.firstChild);
+        }
+
         function enhance(container, snippetId) {
             if (!container) return;
+
+            // Cleanup: any wrapper that no longer directly wraps a UL/OL/PRE is a stray — unwrap it
+            container.querySelectorAll('.pd-row-wrap').forEach(w => {
+                const core = w.querySelector(':scope > ul, :scope > ol, :scope > pre');
+                if (!core) {
+                    while (w.firstChild) w.parentNode.insertBefore(w.firstChild, w);
+                    w.remove();
+                }
+            });
+
+
             const selectors = '.slf-card, .slf-brick, .prompt_area, pre, ul, ol, li';
+
             container.querySelectorAll(selectors).forEach(el => {
-                if (el.querySelector(':scope > putdoc-toolbar')) return;
-                ensurePositioned(el);
+                if (!beginEnhancing(el)) return;
+
+                // Prevent re-entry per element; still safe to run multiple times overall.
+                if (el.dataset.pdEnhanced === '1') return;
+
+                const tag = el.tagName;
+
+                // Ensure each actionable element has a puid
                 const puid = ensurePuid(el);
-                const toolbar = document.createElement('putdoc-toolbar');
-                toolbar.setAttribute('snippet-id', snippetId);
-                toolbar.setAttribute('puid', puid);
-                toolbar.setAttribute('kind', (el.classList[0] || el.tagName.toLowerCase()));
-                //el.innerHTML = `<div style="display=flex">${toolbar}<div class="pd-body">${el.innerHTML}</div>`
-                el.prepend(toolbar);
+
+                // Build a toolbar element
+                const tb = document.createElement('putdoc-toolbar');
+                tb.classList.add('pd-toolbar-host');
+                tb.setAttribute('snippet-id', snippetId);
+                tb.setAttribute('puid', puid);
+                tb.setAttribute('kind', (el.classList[0] || tag.toLowerCase()));
+
+                // Helper: move all siblings after a given node into a target container
+                function moveFollowingSiblings(afterNode, into) {
+                    for (let n = afterNode.nextSibling; n;) {
+                        const next = n.nextSibling;
+                        into.appendChild(n);
+                        n = next;
+                    }
+                }
+
+                // ===== Per-host layout =====
+                if (tag === 'LI') {
+                    // Keep native list marker; make children a flex row [gear | body]
+                    let row = el.querySelector(':scope > .pd-row');
+                    if (!row) {
+                        row = document.createElement('div');
+                        row.className = 'pd-row';
+                        el.insertBefore(row, el.firstChild);
+                    }
+
+                    // Dedupe any accidental duplicates from earlier passes
+                    ensureSingleToolbar(row);
+                    if (!row.querySelector(':scope > putdoc-toolbar')) row.appendChild(tb);
+
+                    // Ensure a body, then move all LI children except the row into the body
+                    let body = row.querySelector(':scope > .pd-body');
+                    if (!body) {
+                        body = document.createElement('div');
+                        body.className = 'pd-body';
+                        // Move every direct child of LI that isn't .pd-row into body
+                        for (let n = el.firstChild; n;) {
+                            const next = n.nextSibling;
+                            if (n !== row) body.appendChild(n);
+                            n = next;
+                        }
+                        row.appendChild(body);
+                    }
+
+                    finishEnhancing(el);
+                    return;
+                }
+
+                if (tag === 'UL' || tag === 'OL' || tag === 'PRE') {
+                    const tb = document.createElement('putdoc-toolbar');
+                    tb.classList.add('pd-toolbar-host');
+                    tb.setAttribute('snippet-id', snippetId);
+                    tb.setAttribute('puid', puid);
+                    tb.setAttribute('kind', tag.toLowerCase());
+
+                    wrapBlockWithToolbar(el, tb, puid);
+                    finishEnhancing(el);
+                    return;
+                }
+
+                // Default hosts (cards, bricks, prompt_area, etc.): make host a flex row
+                let body = el.querySelector(':scope > .pd-body');
+                if (!body) {
+                    // Dedupe any stray toolbars first
+                    ensureSingleToolbar(el);
+
+                    // Insert toolbar first, then move siblings into body
+                    el.insertBefore(tb, el.firstChild);
+                    body = document.createElement('div');
+                    body.className = 'pd-body';
+                    moveFollowingSiblings(tb, body);
+                    el.appendChild(body);
+                    /*for (let n = tb.nextSibling; n;) {
+                        const next = n.nextSibling;
+                        body.appendChild(n);
+                        n = next;
+                    }
+                    el.appendChild(body);*/
+                } else {
+                    ensureSingleToolbar(el);
+                    if (!el.querySelector(':scope > putdoc-toolbar')) {
+                        el.insertBefore(tb, el.firstChild);
+                    }
+                }
+
+                finishEnhancing(el);
             });
         }
+
+
 
         function enhanceById(id) {
             const el = document.getElementById(id);
@@ -809,9 +1160,12 @@
                 enhance(container, snippetId);
                 return container._pdObserver;
             }
-            const mo = new MutationObserver(() => enhance(container, snippetId));
-            container._pdObserver = mo;            // cache on the element
-            mo.observe(container, {childList: true, subtree: true});
+            const mo = new MutationObserver(() => {
+                mo.disconnect();
+                try { enhance(container, snippetId); }
+                finally { mo.observe(container, { childList: true, subtree: true }); }
+            });
+            mo.observe(container, { childList: true, subtree: true });
             enhance(container, snippetId);
             return mo;
         }
@@ -1010,5 +1364,6 @@
             return {status: "error"};
         }
     };
-    
+
+    console.log('putdoc.js [2025-10-23-B.2] loaded');
 })();

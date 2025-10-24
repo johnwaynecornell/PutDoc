@@ -244,4 +244,46 @@ else
     /* Optional separators inside panel */
     .pd-toolbar-panel .sep { border-top: 1px solid #ccc; margin: .5rem 0; display: block; }
 
+    
+    /*.slf-card, .slf-brick, .prompt_area, li {*/
+    /*    display: flex;             !* toolbar + body sit in a row *!*/
+    /*    align-items: flex-start;*/
+    /*    gap: .5rem;*/
+    /*}*/
+
+    /* Keep native markers for lists */
+    li { display: list-item; list-style-position: outside; }
+
+    /* List item: gear + body side-by-side; wrap keeps body aligned next to gear */
+    li > .pd-row {
+        display: flex;
+        align-items: flex-start;
+        gap: .5rem;
+    }
+    li > .pd-row > putdoc-toolbar { flex: 0 0 auto; display: inline-flex; }
+    li > .pd-row > .pd-body { flex: 1 1 auto; min-width: 0; }
+
+    /* UL/OL/PRE wrapper row: toolbar + the whole block */
+    .pd-row-wrap {
+        display: flex;
+        align-items: flex-start;
+        gap: .5rem;
+    }
+    .pd-row-wrap > putdoc-toolbar { flex: 0 0 auto; }
+    .pd-row-wrap > ul,
+    .pd-row-wrap > ol,
+    .pd-row-wrap > pre {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    /* Generic non-list hosts that directly hold the toolbar */
+    .slf-card, .slf-brick, .prompt_area, pre {
+        display: flex;
+        align-items: flex-start;
+        gap: .5rem;
+    }
+    .pd-toolbar-host, .pd-inline-toolbar { display: inline-flex; align-items: center; }
+    .pd-body { flex: 1 1 auto; min-width: 0; }
+
 </style>
