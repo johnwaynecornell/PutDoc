@@ -7,7 +7,7 @@
 
 @implements IDisposable
 
-<h3 class="font-semibold mb-2">WorkPane — Snippets in Page</h3>
+<h3 @ref="_scopeAnchor" class="font-semibold mb-2">WorkPane — Snippets in Page</h3>
 
 @if (_staleStructural)
 {
@@ -167,6 +167,8 @@ else
         State.UiReset -= OnUiReset;
     }
     
+    private ElementReference _scopeAnchor;
+    
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Enhance & observe each snippet by its DOM id (idempotent on JS side)
@@ -177,9 +179,12 @@ else
             var domId = $"snip-{snip.Id}";
             await JS.InvokeVoidAsync("putdocEnh.observeById", domId);
         }
-        
+
         if (firstRender)
+        {
             _sessionId = await JS.InvokeAsync<string>("putdoc.getSessionId");
+            await JS.InvokeVoidAsync("putdocEnh.initMyScopedEnhancements", _scopeAnchor);
+        }
 
 
         // Clear previous highlight when page or selected snippet changed,
@@ -251,39 +256,52 @@ else
     /*    gap: .5rem;*/
     /*}*/
 
-    /* Keep native markers for lists */
+    /* Keep markers */
     li { display: list-item; list-style-position: outside; }
 
-    /* List item: gear + body side-by-side; wrap keeps body aligned next to gear */
+    /* Gear inline, aligned to top */
+    li > putdoc-toolbar {
+        display: inline-block;
+        vertical-align: top;
+        margin-right: .4rem;
+    }
+
+    /* ← This is the key change: make the row inline-flex so it sits on the same line as the gear */
     li > .pd-row {
-        display: flex;
+        display: inline-flex;          /* was: flex */
         align-items: flex-start;
         gap: .5rem;
+        vertical-align: top;           /* cooperates with the inline gear */
     }
-    li > .pd-row > putdoc-toolbar { flex: 0 0 auto; display: inline-flex; }
-    li > .pd-row > .pd-body { flex: 1 1 auto; min-width: 0; }
 
-    /* UL/OL/PRE wrapper row: toolbar + the whole block */
+    /* Let the text area flex but not push overflow horizontally */
+    li > .pd-row > .pd-body {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    /* Whole-block hosts: toolbar left, block right */
     .pd-row-wrap {
         display: flex;
         align-items: flex-start;
         gap: .5rem;
     }
-    .pd-row-wrap > putdoc-toolbar { flex: 0 0 auto; }
+
+    /* Remove default UL spacing inside wrapper so it hugs the gear, keep indent via padding */
     .pd-row-wrap > ul,
-    .pd-row-wrap > ol,
-    .pd-row-wrap > pre {
-        flex: 1 1 auto;
-        min-width: 0;
+    .pd-row-wrap > ol {
+        margin: 0;
+        padding-left: 1.25rem;   /* keep bullets/numbers positioned nicely */
     }
 
-    /* Generic non-list hosts that directly hold the toolbar */
+    /* Custom element defaults (safe) */
+    putdoc-toolbar { display: inline-block; }
+    .pd-inline-toolbar { display: inline-flex; align-items: center; gap: .4rem; }
+
+
+    /* Other host blocks with inline toolbar */
     .slf-card, .slf-brick, .prompt_area, pre {
-        display: flex;
-        align-items: flex-start;
-        gap: .5rem;
+        display: flex; align-items: flex-start; gap: .5rem;
     }
-    .pd-toolbar-host, .pd-inline-toolbar { display: inline-flex; align-items: center; }
-    .pd-body { flex: 1 1 auto; min-width: 0; }
 
 </style>

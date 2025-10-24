@@ -993,43 +993,6 @@
             delete el.dataset[PD_ENHANCING];
         }
 
-        function ensureSingleToolbar(parent) {
-            const list = parent.querySelectorAll(':scope > putdoc-toolbar');
-            if (list.length > 1) {
-                for (let i = 1; i < list.length; i++) list[i].remove();
-            }
-            return list[0] || null;
-        }
-
-        function wrapBlockWithToolbar(el, tb, puid) {
-            // If already wrapped for this element, just ensure a single toolbar and bail
-            const parent = el.parentElement;
-            if (parent && parent.classList.contains('pd-row-wrap') && parent.dataset.forPuid === puid) {
-                if (!parent.querySelector(':scope > putdoc-toolbar')) {
-                    parent.insertBefore(tb, parent.firstChild);
-                } else {
-                    // de-dupe toolbars at wrapper level
-                    const list = parent.querySelectorAll(':scope > putdoc-toolbar');
-                    for (let i = 1; i < list.length; i++) list[i].remove();
-                }
-                return;
-            }
-
-            // Fresh wrap (atomic): replace el with wrapper, then append el into wrapper
-            const wrap = document.createElement('div');
-            wrap.className = 'pd-row-wrap';
-            wrap.dataset.forPuid = puid;
-
-            // Move el into wrap at exactly the same position
-            el.replaceWith(wrap);
-            wrap.appendChild(el);
-
-            // Insert toolbar at the start (de-dupe not needed on fresh wrap)
-            wrap.insertBefore(tb, wrap.firstChild);
-        }
-
-        const enhancedHosts = new WeakSet();
-
         // one-time observer wrapper
         function observe(container, snippetId) {
             if (!container || container.__pdObserved) return;
@@ -1076,51 +1039,117 @@
             });
         }
 
-
-        function ensureToolbar(hostEl, snippetId, puid, kind) {
-            // Find existing toolbar for this puid
-            let tb = hostEl.querySelector(`:scope > putdoc-toolbar[data-owner-puid="${puid}"]`);
-            if (tb) return tb;
-
-            // De-dupe any other stray toolbars directly under this host
-            hostEl.querySelectorAll(':scope > putdoc-toolbar').forEach(x => x.remove());
-
-            // Create fresh
-            tb = document.createElement('putdoc-toolbar');
-            tb.classList.add('pd-toolbar-host');
-            tb.dataset.ownerPuid = puid;
-            tb.setAttribute('snippet-id', snippetId);
-            tb.setAttribute('puid', puid);
-            tb.setAttribute('kind', kind);
-            // after create
-            tb.dataset.source = `created@${Date.now()}`;
-            console.warn('[tb-create]', { puid, kind, host: hostEl.tagName, outer: hostEl.outerHTML.slice(0,120) });
-            
-            hostEl.prepend(tb);
-            return tb;
+        // Find the Blazor scope attr name (e.g., "b-7r8g3f2w") on an ancestor
+        function findBlazorScopeAttr(el) {
+            let cur = el;
+            while (cur && cur.nodeType === 1) {
+                for (const a of cur.attributes) {
+                    // Blazor scope attrs look like "b-xxxx..." and have empty value
+                    if (a.name.startsWith('b-') && a.value === '') return a.name;
+                }
+                cur = cur.parentElement;
+            }
+            return null;
         }
 
-        function wrapBlockWithToolbar(listEl, snippetId, puid) {
-            const kind = listEl.tagName.toLowerCase();
+// Apply that scope attr to any new node we inject
+        function applyScopeAttr(newEl) {
+            // const scope = __blazorScopeAttr;
+            // if (scope) newEl.setAttribute(scope, '');
+            // else console.warn('No Blazor scope attr missing', newEl);
+        }
+
+        var __blazorScopeAttr;
+        function initMyScopedEnhancements(anchorEl) {
+            // __blazorScopeAttr= findBlazorScopeAttr(anchorEl);
+            // if (!__blazorScopeAttr) console.error('No Blazor scope attr found on', anchorEl);
+        }
+        
+        function ensureToolbar(hostEl, snippetId, puid, kind) {
+            if (hostEl.querySelector(':scope > putdoc-toolbar')) return;
+            const tb = document.createElement('putdoc-toolbar');
+            applyScopeAttr(tb);
+            
+            tb.className = 'pd-toolbar-host';
+            tb.setAttribute('snippet-id', snippetId);
+            tb.setAttribute('puid', puid);
+            tb.dataset.ownerPuid = puid;
+            tb.setAttribute('kind', kind);
+            hostEl.prepend(tb);
+        }
+
+        
+        
+        function wrapBlockWithToolbar(blockEl, snippetId, puid) {
+            const kind = blockEl.tagName.toLowerCase();
 
             // Already wrapped for this puid?
-            const parent = listEl.parentElement;
+            const parent = blockEl.parentElement;
             if (parent && parent.classList.contains('pd-row-wrap') && parent.dataset.forPuid === puid) {
                 ensureToolbar(parent, snippetId, puid, kind);
                 return parent; // wrapper is host
             }
-
+            
             // Fresh wrapper (atomic)
             const wrap = document.createElement('div');
+            applyScopeAttr(wrap);
             wrap.className = 'pd-row-wrap';
             wrap.dataset.forPuid = puid;
-            listEl.replaceWith(wrap);
-            wrap.appendChild(listEl);
+            blockEl.replaceWith(wrap);
+            wrap.appendChild(blockEl);
 
             ensureToolbar(wrap, snippetId, puid, kind);
             return wrap; // wrapper is host
         }
-
+        
+        
+                function wrapBlockWithToolbar2(listEl, snippetId, puid) {
+                    const kind = listEl.tagName.toLowerCase();
+        
+                    // Already wrapped for this puid?
+                    const parent = listEl.parentElement;
+                    if (parent && parent.classList.contains('pd-row-wrap') && parent.dataset.forPuid === puid) {
+                        ensureToolbar(parent, snippetId, puid, kind);
+                        return parent; // wrapper is host
+                    }
+        
+                    // Fresh wrapper (atomic)
+                    const wrap = document.createElement('div');
+                    applyScopeAttr(wrap);
+                    wrap.className = 'pd-row-wrap';
+                    wrap.dataset.forPuid = puid;
+                    listEl.replaceWith(wrap);
+                    wrap.appendChild(listEl);
+        
+                    ensureToolbar(wrap, snippetId, puid, kind);
+                    return wrap; // wrapper is host
+                } 
+        
+                
+                function ensureLiRow(li, snippetId, puid) {
+                    let row = li.querySelector(':scope > .pd-row');
+                    if (!row) {
+                        row = document.createElement('div');
+                        applyScopeAttr(row);
+                        
+                        row.className = 'pd-row';
+                        // move all children (except any existing toolbar) into a body
+                        const body = document.createElement('div'); 
+                        applyScopeAttr(body);
+                        
+                        body.className = 'pd-body';
+                        for (let n = li.firstChild; n; ) {
+                            const next = n.nextSibling;
+                            if (!(n.nodeType === 1 && n.tagName === 'PUTDOC-TOOLBAR')) body.appendChild(n);
+                            n = next;
+                        }
+                        li.appendChild(row);
+                        row.appendChild(body);
+                    }
+                    ensureToolbar(li, snippetId, puid, 'li');
+                }
+/*
+                
         function ensureLiRow(li, snippetId, puid, kind) {
             // idempotent: if we already structured this li, just ensure toolbar
             let row = li.querySelector(':scope > .pd-row');
@@ -1141,55 +1170,36 @@
             // toolbar is direct child of li (before .pd-row)
             ensureToolbar(li, snippetId, puid, kind);
             return row;
-        }
-
+        } */ 
+        
         function enhance(container, snippetId) {
+            blazorScopeAttr = findBlazorScopeAttr(container);
+            console.log('blazorScopeAttr', blazorScopeAttr);
+            
+            
             if (!container) return;
+            withGuard(container, () => {
+                preclean(container);
 
-            // Remove any wrapper that no longer has its block child (UL/OL/PRE)
-            container.querySelectorAll('.pd-row-wrap').forEach(wrap => {
-                const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre');
-                if (!hasBlock) wrap.remove();
-            });
-
-
-            // 0) Cleanup: remove any stray toolbars sitting directly under the snippet root
-            // that are NOT owned by the first matching host.
-            container.querySelectorAll(':scope > putdoc-toolbar').forEach(tb => {
-                const puid = tb.getAttribute('puid') || tb.dataset.ownerPuid || '';
-                // If there is a legit host below for this puid, the toolbar should live there.
-                const intended =
-                    container.querySelector(`.pd-row-wrap[data-for-puid="${puid}"]`) ||
-                    container.querySelector(`li[data-puid="${puid}"]`) ||
-                    container.querySelector(`[data-puid="${puid}"]`);
-                if (intended && intended !== container) tb.remove();
-            });
-
-            // 1) Work on a static list so mutations don’t scramble iteration
-            const els = Array.from(container.querySelectorAll('.slf-card, .slf-brick, .prompt_area, pre, ul, ol, li'));
-
-            for (const el of els) {
-                if (enhancedHosts.has(el)) continue; // idempotent guard
-
-                const kind = (el.classList[0] || el.tagName.toLowerCase());
-                const puid = ensurePuid(el);
-
-                if (el.tagName === 'UL' || el.tagName === 'OL' || el.tagName === 'PRE') {
+                // Pass 1: whole-block hosts
+                container.querySelectorAll('ul, ol, pre').forEach(el => {
+                    const puid = ensurePuid(el);
                     wrapBlockWithToolbar(el, snippetId, puid);
-                    enhancedHosts.add(el);
-                    continue;
-                }
+                });
 
-                if (el.tagName === 'LI') {
-                    ensureLiRow(el, snippetId, puid, 'li');
-                    enhancedHosts.add(el);
-                    continue;
-                }
+                // Pass 2: list items
+                container.querySelectorAll('li').forEach(li => {
+                    const puid = ensurePuid(li);
+                    ensureLiRow(li, snippetId, puid);
+                });
 
-                // Generic hosts (cards/bricks/prompt/pre-as-block already handled above)
-                ensureToolbar(el, snippetId, puid, kind);
-                enhancedHosts.add(el);
-            }
+                // Pass 3: other host types (card/brick/prompt)
+                container.querySelectorAll('.slf-card, .slf-brick, .prompt_area').forEach(el => {
+                    const puid = ensurePuid(el);
+                    const kind = (el.classList[0] || el.tagName.toLowerCase());
+                    ensureToolbar(el, snippetId, puid, kind);
+                });
+            });
         }
 
 
@@ -1231,7 +1241,7 @@
         return {
             claimLeader, releaseLeader,
             setHub, getHub, clearHub, hasHub,
-            enhance, observe, enhanceById, observeById,
+            enhance, observe, enhanceById, observeById, initMyScopedEnhancements,
             copyByPuid: copyByPuidClean,
             clearSelected, markSelected,
             closeAllToolbars
@@ -1415,5 +1425,5 @@
         }
     };
 
-    console.log('putdoc.js [2025-10-24-A] loaded');
+    console.log('putdoc.js [2025-10-24-C.23] loaded');
 })();
