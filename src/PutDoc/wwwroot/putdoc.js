@@ -1103,51 +1103,51 @@
         }
         
         
-                function wrapBlockWithToolbar2(listEl, snippetId, puid) {
-                    const kind = listEl.tagName.toLowerCase();
+        function wrapBlockWithToolbar2(listEl, snippetId, puid) {
+            const kind = listEl.tagName.toLowerCase();
+
+            // Already wrapped for this puid?
+            const parent = listEl.parentElement;
+            if (parent && parent.classList.contains('pd-row-wrap') && parent.dataset.forPuid === puid) {
+                ensureToolbar(parent, snippetId, puid, kind);
+                return parent; // wrapper is host
+            }
+
+            // Fresh wrapper (atomic)
+            const wrap = document.createElement('div');
+            applyScopeAttr(wrap);
+            wrap.className = 'pd-row-wrap';
+            wrap.dataset.forPuid = puid;
+            listEl.replaceWith(wrap);
+            wrap.appendChild(listEl);
+
+            ensureToolbar(wrap, snippetId, puid, kind);
+            return wrap; // wrapper is host
+        } 
+
         
-                    // Already wrapped for this puid?
-                    const parent = listEl.parentElement;
-                    if (parent && parent.classList.contains('pd-row-wrap') && parent.dataset.forPuid === puid) {
-                        ensureToolbar(parent, snippetId, puid, kind);
-                        return parent; // wrapper is host
-                    }
-        
-                    // Fresh wrapper (atomic)
-                    const wrap = document.createElement('div');
-                    applyScopeAttr(wrap);
-                    wrap.className = 'pd-row-wrap';
-                    wrap.dataset.forPuid = puid;
-                    listEl.replaceWith(wrap);
-                    wrap.appendChild(listEl);
-        
-                    ensureToolbar(wrap, snippetId, puid, kind);
-                    return wrap; // wrapper is host
-                } 
-        
+        function ensureLiRow(li, snippetId, puid) {
+            let row = li.querySelector(':scope > .pd-row');
+            if (!row) {
+                row = document.createElement('div');
+                applyScopeAttr(row);
                 
-                function ensureLiRow(li, snippetId, puid) {
-                    let row = li.querySelector(':scope > .pd-row');
-                    if (!row) {
-                        row = document.createElement('div');
-                        applyScopeAttr(row);
-                        
-                        row.className = 'pd-row';
-                        // move all children (except any existing toolbar) into a body
-                        const body = document.createElement('div'); 
-                        applyScopeAttr(body);
-                        
-                        body.className = 'pd-body';
-                        for (let n = li.firstChild; n; ) {
-                            const next = n.nextSibling;
-                            if (!(n.nodeType === 1 && n.tagName === 'PUTDOC-TOOLBAR')) body.appendChild(n);
-                            n = next;
-                        }
-                        li.appendChild(row);
-                        row.appendChild(body);
-                    }
-                    ensureToolbar(li, snippetId, puid, 'li');
+                row.className = 'pd-row';
+                // move all children (except any existing toolbar) into a body
+                const body = document.createElement('div'); 
+                applyScopeAttr(body);
+                
+                body.className = 'pd-body';
+                for (let n = li.firstChild; n; ) {
+                    const next = n.nextSibling;
+                    if (!(n.nodeType === 1 && n.tagName === 'PUTDOC-TOOLBAR')) body.appendChild(n);
+                    n = next;
                 }
+                li.appendChild(row);
+                row.appendChild(body);
+            }
+            ensureToolbar(li, snippetId, puid, 'li');
+        }
 /*
                 
         function ensureLiRow(li, snippetId, puid, kind) {

@@ -256,52 +256,61 @@ else
     /*    gap: .5rem;*/
     /*}*/
 
-    /* Keep markers */
+    /* keep the native bullet/number */
     li { display: list-item; list-style-position: outside; }
 
-    /* Gear inline, aligned to top */
-    li > putdoc-toolbar {
-        display: inline-block;
-        vertical-align: top;
-        margin-right: .4rem;
+    /* --- LI rows (toolbar floated left by default) --- */
+    li > putdoc-toolbar { float: left; margin-right: .5rem; }
+    li > .pd-body { overflow: hidden; } /* BFC so text sits to the right of the float */
+
+    /* When the toolbar is OPEN → put it on its own line, then the body below it */
+    li > putdoc-toolbar:has(.pd-inline-toolbar[data-open="true"]) {
+        float: none;              /* stop floating */
+        display: block;           /* take the full line */
+        margin-right: 0;
+    }
+    li > putdoc-toolbar:has(.pd-inline-toolbar[data-open="true"]) + .pd-body {
+        clear: both;              /* force the content onto the next line */
     }
 
-    /* ← This is the key change: make the row inline-flex so it sits on the same line as the gear */
+    /* --- Block wrappers (ul/ol/pre wrapped in .pd-row-wrap) --- */
+    .pd-row-wrap { display: flex; gap: .5rem; align-items: flex-start; }
+    .pd-row-wrap:has(> putdoc-toolbar .pd-inline-toolbar[data-open="true"]) {
+        display: block;           /* stack: toolbar on its own line, then the block */
+    }
+    .pd-row-wrap:has(> putdoc-toolbar .pd-inline-toolbar[data-open="true"]) > putdoc-toolbar {
+        margin-bottom: .35rem;    /* a little air above the list/pre */
+    }
+
+
+    /* make the content block establish a new BFC next to the float */
     li > .pd-row {
-        display: inline-flex;          /* was: flex */
-        align-items: flex-start;
-        gap: .5rem;
-        vertical-align: top;           /* cooperates with the inline gear */
+        display: flow-root;     /* modern clearfix/BFC */
+        /* if flow-root isn't available in your target, use overflow:hidden; */
+        /* overflow: hidden; */
     }
 
-    /* Let the text area flex but not push overflow horizontally */
+    /* the actual text container */
     li > .pd-row > .pd-body {
-        flex: 1 1 auto;
-        min-width: 0;
+        min-width: 0;           /* allow wrapping, no horizontal scroll */
     }
 
-    /* Whole-block hosts: toolbar left, block right */
+    /* optional: vertically align first line with the gear */
+    li > .pd-row,
+    li > putdoc-toolbar { vertical-align: top; }
+
+    /* whole-block wrapper for UL/OL/PRE stays flex (unchanged) */
     .pd-row-wrap {
         display: flex;
         align-items: flex-start;
         gap: .5rem;
     }
-
-    /* Remove default UL spacing inside wrapper so it hugs the gear, keep indent via padding */
     .pd-row-wrap > ul,
-    .pd-row-wrap > ol {
-        margin: 0;
-        padding-left: 1.25rem;   /* keep bullets/numbers positioned nicely */
-    }
+    .pd-row-wrap > ol { margin: 0; padding-left: 1.25rem; }
 
+    .pd-row,.pd-row-wrap { border: 1px solid #AAA; border-radius: 4px; }
     /* Custom element defaults (safe) */
     putdoc-toolbar { display: inline-block; }
     .pd-inline-toolbar { display: inline-flex; align-items: center; gap: .4rem; }
-
-
-    /* Other host blocks with inline toolbar */
-    .slf-card, .slf-brick, .prompt_area, pre {
-        display: flex; align-items: flex-start; gap: .5rem;
-    }
 
 </style>
