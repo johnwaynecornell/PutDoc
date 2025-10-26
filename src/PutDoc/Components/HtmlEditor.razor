@@ -58,7 +58,7 @@
 
     <!-- Save/Undo/Redo/Freeze row -->
     <div class="palette">
-      <button type="button" class="btn" @onclick="SaveNow" disabled="@(_isFrozen || State.IsReadOnly)">Save now</button>
+      <button type="button" class="btn" @onclick="SaveNow" disabled="@(State.IsReadOnly)">Save now</button>
       <button type="button" class="btn" @onclick="Undo" disabled="@(!_canUndo)">
           @("Undo" + (_canUndo && _undo[^1]?.Label is { } L ? $": {L}" : ""))
       </button>
@@ -365,12 +365,12 @@
                 return;
             }
 
-            await SaveAsync();
+            await SaveAsync(false);
 
             if (_pendingSave)
             {
                 _pendingSave = false;
-                await SaveAsync();
+                await SaveAsync(false);
             }
         });
     }
@@ -489,10 +489,13 @@
     }
 
     // ---- SAVE (no undo push here; checkpoint already advanced) ----
-    private async Task SaveAsync()
+    private async Task SaveAsync(bool force=false)
     {
-        if (_isFrozen) return;
         if (State.IsReadOnly) return;
+
+        // Keep autosave blocked during freeze; allow manual “Save now”
+        if (_isFrozen && !force) return;
+
 
         var myEpoch = ++_saveEpoch;
         var myEditVersionAtStart = _editVersion;
@@ -651,6 +654,7 @@
     private void ToggleFreeze()
     {
         _isFrozen = !_isFrozen;
+        if (!_isFrozen && State.IsDirty) SaveNow();
         StateHasChanged();
     }
     
@@ -719,19 +723,31 @@
         }
         return Task.CompletedTask;
     }
-
-
+    
     private async Task SaveNow()
     {
-        if (State.IsReadOnly) return;
+        if (State.NeedsRepairReview) return;
         _debounce?.Stop();
 
         // Still checkpoint first (even on explicit save), then persist if not frozen.
         await CreateUndoCheckpointAsync();
-        if (_isFrozen) return;
+        if (_isFrozen) Console.WriteLine("[HtmlEditor] info");
 
-        await SaveAsync();
+        await SaveAsync(force:true);
     }
+
+    // private async Task SaveNow()
+    // {
+    //     if (State.IsReadOnly) return;
+    //     _debounce?.Stop();
+    //
+    //     // Still checkpoint first (even on explicit save), then persist if not frozen.
+    //     await CreateUndoCheckpointAsync();
+    //     if (_isFrozen) return;
+    //
+    //     await SaveAsync();
+    // }
+    
 
     public void Dispose()
     {

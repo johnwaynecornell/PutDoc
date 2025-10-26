@@ -27,8 +27,6 @@ public class PutDocState
     private readonly IDocCatalogService _catalog;
     private readonly IJSRuntime _js; // if you need it for RO attribute
     private readonly RepairLogService _repairs;
-    
-
     public PutDocState(RepairLogService repairs, IDocCatalogService catalog, IAngleSoftFilter filter, IJSRuntime js)
     {
         _repairs = repairs;
@@ -54,7 +52,7 @@ public class PutDocState
     }
 
     public bool IsReadOnly => _needsRepairReview || (_isWriteBlocked != null ? (bool) _isWriteBlocked : false);
-
+    
 // --- Public API ---
 
     public void SetWriteBlock(bool blocked)
