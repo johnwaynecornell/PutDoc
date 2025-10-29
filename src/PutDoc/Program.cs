@@ -7,6 +7,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 //dotnet PutDoc --urls "http://localhost:5000" --PutDocRootPath "/data/jwc/Documents/PutDoc"
 // Services
+
+// User/local overrides (not in repo, writable)
+builder.Configuration
+    .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 builder.Configuration.AddEnvironmentVariables(prefix: "PUTDOC_");
 
 builder.Services

@@ -11,6 +11,7 @@
 @using Microsoft.AspNetCore.Components.Web   
 
 @inject IJSRuntime JS
+@inject IConfiguration Config
 
 @implements IDisposable
 
@@ -73,7 +74,7 @@
         
         <RepairBanner />
         
-        @if (Env.IsDevelopment() && State.Doc is not null)
+        @if (Env.IsDevelopment() && Config.GetValue<bool>("PutDocDebug_EnableMutators") && State.Doc is not null)
         {
             <div class="menu-popover" style="margin:.5rem 0;">
                 <strong>Debug Mutators</strong>
