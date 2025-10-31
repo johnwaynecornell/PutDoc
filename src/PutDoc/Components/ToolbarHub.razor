@@ -449,7 +449,7 @@
         };
 
         var roAttr = State.IsReadOnly ? @"data-readonly=""true""" : "";
-        var disable = State.IsReadOnly ? @"disabled=""disabled""" : "";
+        var disable = (State.IsReadOnly || (State.IsFrozen != null && State.IsFrozen())) ? @"disabled=""disabled""" : "";
         
         // Note: keep Edit buttons enabled; structural actions are disabled when RO.
         var html = $@"

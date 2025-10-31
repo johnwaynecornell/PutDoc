@@ -1,3 +1,4 @@
+@using System.Text.Json
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
 @inject IJSRuntime JS
@@ -39,8 +40,10 @@ else { <em>Missing root collection.</em> }
             @if (_menuOpenFor == collection.Id)
             {
                 <div class="menu-popover">
-                    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick="() => State.CreatePage(collection.Id)">+ Page</button>
-                    <button type="button" class="btn" disabled="@State.IsReadOnly" @onclick="() => State.CreateCollection(collection.Id)">+ Collection</button>
+                    <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteIntoCollection(collection.Id) ">Paste Into</button>
+                    <button type="button" class="btn" @onclick="() => CopyCollectionJson(collection.Id) ">Copy</button>
+                    <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.CreatePage(collection.Id)">+ Page</button>
+                    <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.CreateCollection(collection.Id)">+ Collection</button>
                 </div>
             }
 
@@ -76,13 +79,14 @@ else { <em>Missing root collection.</em> }
                             @if (_menuOpenFor == pid)
                             {
                                 <div class="menu-popover">
-                                    <button type="button" class="btn" title="Rename" disabled="@State.IsReadOnly" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
-                                    <button type="button" class="btn" title="Move Up" disabled="@State.IsReadOnly" @onclick="() => State.MovePage(collection.Id, pid, -1)">↑</button>
-                                    <button type="button" class="btn" title="Move Down" disabled="@State.IsReadOnly" @onclick="() => State.MovePage(collection.Id, pid, +1)">↓</button>
-                                    <button type="button" class="btn" title="Clone" disabled="@State.IsReadOnly" @onclick="() => State.ClonePage(collection.Id, pid)">⧉ Clone</button>
-                                    <button type="button" class="btn danger" title="Delete" disabled="@State.IsReadOnly" @onclick="() => State.DeletePage(collection.Id, pid)">🗑 Delete</button>
+                                    <button type="button" class="btn" title="Rename" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
+                                    <button type="button" class="btn" title="Copy" @onclick="() => CopyPageJson(pid)">Copy</button>
+                                    <button type="button" class="btn" title="Move Up" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.MovePage(collection.Id, pid, -1)">↑</button>
+                                    <button type="button" class="btn" title="Move Down" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.MovePage(collection.Id, pid, +1)">↓</button>
+                                    <button type="button" class="btn" title="Clone" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.ClonePage(collection.Id, pid)">⧉ Clone</button>
+                                    <button type="button" class="btn danger" title="Delete" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.DeletePage(collection.Id, pid)">🗑 Delete</button>
                                     <span class="sep"></span>
-                                    <button type="button" class="btn primary" title="Paste HTML as new snippet" disabled="@State.IsReadOnly" @onclick="() => PasteIntoPage(pid)">📋 Paste into Page</button>
+                                    <button type="button" class="btn primary" title="Paste HTML as new snippet" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteIntoPage(pid)">📋 Paste into Page</button>
                                 </div>
                             }
                         </li>
@@ -105,6 +109,48 @@ else { <em>Missing root collection.</em> }
         if (string.IsNullOrWhiteSpace(html)) return;
         await State.AddSnippetToPage(pageId, html);   // selects new snippet & updates editor via Notify()
     }
+
+    async void CopyCollectionJson(Guid currentCollectionId)
+    {
+        string json = PutDocExport.ExportCollectionDeep(State.Doc, currentCollectionId);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", json);
+    }
+    
+    async void CopyPageJson(Guid page_id)
+    {
+        string json = PutDocExport.ExportPageComplete(State.Doc.Pages[page_id]);
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", json);
+    }
+
+    
+    async void PasteIntoCollection(Guid currentCollectionId, string? json=null, bool overwrite = false)
+    {
+        if (json == null) json = await JS.InvokeAsync<string>("putdoc.readClipboardText"); 
+        
+        var parsed = PutDocDetect.ParsePageOrCollection(json);
+        switch (parsed.Kind)
+        {
+            case ExportPayloadKind.Page:
+            {
+                var page = PutDocImport.ImportPageComplete(State.Doc, parsed.Page!, overwrite, newGuid: true);
+                var coll = State.Doc.Collections[currentCollectionId];
+                if (!coll.PageIds.Contains(page.Id)) coll.PageIds.Add(page.Id);
+                State.Notify();
+                break;
+            }
+            case ExportPayloadKind.Collection:
+            {
+                // Attach imported subtree under the current collection
+                PutDocImport.ImportCollectionDeep(State.Doc, JsonSerializer.Serialize(parsed.Collection!, PutDocJson.Pretty),
+                    attachTo: currentCollectionId, overwrite: overwrite, true);
+                State.Notify();
+                break;
+            }
+            default:
+                throw new InvalidDataException("Unrecognized export JSON. Expecting Page or Collection.");
+        }
+    }
+
 
     protected override Task OnAfterRenderAsync(bool firstRender)
     {

@@ -3,7 +3,7 @@ public record DocMeta
     public Guid Id { get; set; }
     public string Name { get; set; } = "Untitled";
     public DateTimeOffset Modified { get; set; } = DateTimeOffset.UtcNow;
-    public int Version { get; set; } = 0; // increments on each save
+    public int Version { get; set; } = 0;
 }
 
 public record PutDocFile
@@ -24,7 +24,7 @@ public record Collection
 
 public record Page
 {
-    public Guid Id { get; init; } = Guid.NewGuid();
+    public Guid Id { get; set; } = Guid.NewGuid();
     public string Title { get; set; } = "Page";
     public List<Snippet> Snippets { get; set; } = new();
 }
@@ -34,3 +34,4 @@ public record Snippet
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Html { get; set; } = "<p>New snippet</p>";
 }
+

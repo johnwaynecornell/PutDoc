@@ -33,14 +33,14 @@
             </div>
 
             <div class="palette">
-                @* <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button> *@
+                @* <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button> *@
 
-                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button>
-                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.DeleteSnippet(snip.Id)'>Delete</button>
-                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.CloneSnippet(snip.Id)'>Clone</button>
-                <button type='button' class='btn' @onclick='() => CopyToClipboard(snip.Html ?? "")'>Copy</button>
-                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => State.MoveSnippet(snip.Id, -1)'>↑</button>
-                <button type='button' class='btn' disabled="@State.IsReadOnly" onclick='() => State.MoveSnippet(snip.Id, +1)'>↓</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.DeleteSnippet(snip.Id)'>Delete</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.CloneSnippet(snip.Id)'>Clone</button>
+                <button type='button' class='btn' @onclick='async () => CopyToClipboard(await HtmlPuid.StripPuidsAsync(snip.Html ?? ""))'>Copy</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.MoveSnippet(snip.Id, -1)'>↑</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" onclick='() => State.MoveSnippet(snip.Id, +1)'>↓</button>
 
                 <!-- Acquire lock before selecting snippet -->
                 <button type='button'
@@ -49,9 +49,9 @@
                     Edit
                 </button>
 
-                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Card)'>+ slf-card</button>
-                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Brick)'>+ slf-brick</button>
-                <button type='button' class='btn' disabled="@State.IsReadOnly" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Prompt)'>+ prompt</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Card)'>+ slf-card</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Brick)'>+ slf-brick</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => InsertTemplate(snip.Id, TemplateKind.Prompt)'>+ prompt</button>
             </div>
         </div>
     }

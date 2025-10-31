@@ -52,6 +52,7 @@ public class PutDocState
     }
 
     public bool IsReadOnly => _needsRepairReview || (_isWriteBlocked != null ? (bool) _isWriteBlocked : false);
+    public bool IsReadOnlyOrFrozen => IsReadOnly || (IsFrozen != null ? IsFrozen() : false);
     
 // --- Public API ---
 
