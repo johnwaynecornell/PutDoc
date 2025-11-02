@@ -1192,14 +1192,72 @@ public class PutDocState
     public async Task DeletePage(Guid collectionId, Guid pageId)
     {
         if (!Doc.Collections.TryGetValue(collectionId, out var collection)) return;
+        
         collection.PageIds.Remove(pageId);
         Doc.Pages.Remove(pageId);
-        if (SelectedPageId == pageId)
-            SelectedPageId = collection.PageIds.LastOrDefault();
+        //if (SelectedPageId == pageId)
+        //    SelectedPageId = collection.PageIds.LastOrDefault();
+        await SaveAsync();
+        Notify();
+        
+        if (SelectedPageId == pageId) _ = LoadDefaultAsync();
+        
+    }
+    
+    public async Task DeleteCollection(Guid collectionId)
+    {
+        if (!Doc.Collections.TryGetValue(collectionId, out var collection)) return;
+
+        // Prevent deleting the root collection
+        if (collectionId == Doc.RootCollectionId) return;
+
+        // 3) Delete all pages in this collection
+        if (collection.PageIds is { Count: > 0 })
+        {
+            // Copy to avoid modification during iteration
+            var pages = collection.PageIds.ToList();
+            foreach (var pid in pages)
+            {
+                await DeletePage(collectionId, pid);
+            }
+        }
+
+
+        // 2) Recursively delete all child collections
+        if (collection.ChildCollectionIds is { Count: > 0 })
+        {
+            // Copy to avoid modification during iteration
+            var children = collection.ChildCollectionIds.ToList();
+            foreach (var childId in children)
+            {
+                await DeleteCollection(childId);
+            }
+        }
+        
+        // 1) Find parent(s) that reference this collection and remove the link
+        foreach (var kv in Doc.Collections)
+        {
+            var parent = kv.Value;
+            if (parent.ChildCollectionIds is { Count: > 0 } && parent.ChildCollectionIds.Contains(collectionId))
+            {
+                parent.ChildCollectionIds.Remove(collectionId);
+                // Do not break; theoretically, if there are multiple refs, remove all
+            }
+        }
+        
+        // 4) Remove the collection itself
+        Doc.Collections.Remove(collectionId);
+
+        // 5) Fix selection if needed
+        if (SelectedPageId is Guid selPid && !Doc.Pages.ContainsKey(selPid))
+            SelectedPageId = Doc.Collections.TryGetValue(Doc.RootCollectionId, out var root) && root.PageIds.Count > 0
+                ? root.PageIds[0]
+                : Doc.Pages.Keys.FirstOrDefault();
+
+        // 6) Persist
         await SaveAsync();
         Notify();
     }
-
     // Clone a page
     public async Task<Guid> ClonePage(Guid collectionId, Guid pageId)
     {
