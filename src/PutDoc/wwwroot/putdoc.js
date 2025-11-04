@@ -16,6 +16,19 @@
         return '';
     };
 
+    window.putdoc.toast = function (message) {
+        const div = document.createElement("div");
+        div.textContent = message;
+        Object.assign(div.style, {
+            position: "fixed", bottom: "1rem", right: "1rem",
+            background: "#333", color: "#fff", padding: "0.5rem 1rem",
+            borderRadius: "0.5rem", opacity: "0.9", zIndex: 9999,
+            transition: "opacity 0.5s ease"
+        });
+        document.body.appendChild(div);
+        setTimeout(() => { div.style.opacity = "0"; setTimeout(() => div.remove(), 500); }, 2500);
+    }
+
     window.putdoc.getClientId = function () {
         try {
             let id = localStorage.getItem("pd.clientId");

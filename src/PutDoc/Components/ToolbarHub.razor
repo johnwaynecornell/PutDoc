@@ -80,6 +80,8 @@
         // Nothing else needed here; actions happen when JS calls back into us or Writer events fire
     }
 
+    public bool? HasWriter = null;
+    
     private void WritersOnWriterChanged(Guid docId, WriterInfo? writerInfo)
     {
         if (!_isLeader) return; // only leader toggles read-only UI
@@ -88,11 +90,17 @@
         if (string.IsNullOrEmpty(_sessionId)) return;
 
         var isMe = writerInfo is not null && writerInfo.SessionId == _sessionId;
-        State.SetWriteBlock(!isMe);
 
-        Console.WriteLine($"[ToolbarHub] WritersOnWriterChanged: _sessionId={_sessionId} docId={docId} isMe={isMe}");
-        if (!isMe)
-            _ = JS.InvokeVoidAsync("putdocEnh.closeAllToolbars");
+        if (HasWriter != isMe)
+        {
+            HasWriter = isMe;
+            State.SetWriteBlock(!isMe);
+
+            Console.WriteLine($"[ToolbarHub] WritersOnWriterChanged: _sessionId={_sessionId} docId={docId} isMe={isMe}");
+            if (!isMe)
+                _ = JS.InvokeVoidAsync("putdocEnh.closeAllToolbars");
+            _ = JS.InvokeVoidAsync("putdoc.toast", (isMe ? "Became" : "Lost") + " Writer");
+        }
 
         //State.Notify();
         _ = InvokeAsync(StateHasChanged);
