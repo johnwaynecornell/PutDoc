@@ -1177,6 +1177,23 @@ public class PutDocState
     }
 
     // Reorder pages within a collection
+    public async Task MoveCollection(Guid parentId, Guid collectionId, int delta)
+    {
+        if (!Doc.Collections.TryGetValue(collectionId, out var collection)) return;
+        if (!Doc.Collections.TryGetValue(parentId, out var parent)) return;
+        
+        var i = parent.ChildCollectionIds.FindIndex(id => id == collectionId);
+        if (i < 0) return;
+        var j = Math.Clamp(i + delta, 0, parent.ChildCollectionIds.Count - 1);
+        if (i == j) return;
+        (parent.ChildCollectionIds[i], parent.ChildCollectionIds[j]) = (parent.ChildCollectionIds[j], parent.ChildCollectionIds[i]);
+        
+        await SaveAsync();
+        Notify();
+    }
+
+    
+    // Reorder pages within a collection
     public async Task MovePage(Guid collectionId, Guid pageId, int delta)
     {
         if (!Doc.Collections.TryGetValue(collectionId, out var collection)) return;

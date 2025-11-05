@@ -8,7 +8,7 @@
 @if (Root is not null)
 {
     <div class="text-sm">
-        @RenderCollection(Root)
+        @RenderCollection(null, Root)
     </div>
 }
 else { <em>Missing root collection.</em> }
@@ -24,7 +24,7 @@ else { <em>Missing root collection.</em> }
     //Dictionary<bool, string> up_dn = new Dictionary<bool, string>() { { true, "△" }, {false, "▽"} };
     Dictionary<bool, string> up_dn = new Dictionary<bool, string>() { { true, "▲" }, {false, "▼"} };
     
-    RenderFragment RenderCollection(Collection collection) => __builder =>
+    RenderFragment RenderCollection(Collection parent, Collection collection) => __builder =>
     {
         <details open class="collection">
             <summary class="collection-row">
@@ -42,10 +42,21 @@ else { <em>Missing root collection.</em> }
                 <div class="menu-popover">
                     <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteIntoCollection(collection.Id) ">Paste Into</button>
                     <button type="button" class="btn" @onclick="() => CopyCollectionJson(collection.Id) ">Copy</button>
+                    
+                    @if (parent != null)
+                    {
+                        <button type="button" class="btn" title="Move Up" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.MoveCollection(parent.Id, collection.Id, -1)">↑</button>
+                        <button type="button" class="btn" title="Move Down" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.MoveCollection(parent.Id, collection.Id, +1)">↓</button>
+                    }
+
                     <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.CreatePage(collection.Id)">+ Page</button>
                     <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.CreateCollection(collection.Id)">+ Collection</button>
-                    <button type="button" class="btn danger" title="Delete" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.DeleteCollection(collection.Id)">🗑 Delete</button>
-                    </div>
+                    
+                    @if (parent != null)
+                    {
+                        <button type="button" class="btn danger" title="Delete" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.DeleteCollection(collection.Id)">🗑 Delete</button>
+                    }
+                </div>
             }
 
             @if (collection.ChildCollectionIds?.Count > 0)
@@ -54,7 +65,7 @@ else { <em>Missing root collection.</em> }
                     @foreach (var cid in collection.ChildCollectionIds)
                     {
                         if (!State.Doc.Collections.TryGetValue(cid, out var child)) continue;
-                        @RenderCollection(child)
+                        @RenderCollection(collection, child)
                     }
                 </div>
             }
