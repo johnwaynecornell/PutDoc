@@ -1186,9 +1186,6 @@
         } */ 
         
         function enhance(container, snippetId) {
-            blazorScopeAttr = findBlazorScopeAttr(container);
-            console.log('blazorScopeAttr', blazorScopeAttr);
-            
             
             if (!container) return;
             withGuard(container, () => {
