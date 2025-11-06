@@ -282,7 +282,16 @@ public static class PutDocDetect
 {
     public static ParsedExport ParsePageOrCollection(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(json);
+        }
+        catch
+        {
+            return new ParsedExport(ExportPayloadKind.Unknown, null, null);
+        }
+
         var root = doc.RootElement;
 
         // 1) Whole-file deep wrapper: { "name": "...", "rootCollection": { ... } }

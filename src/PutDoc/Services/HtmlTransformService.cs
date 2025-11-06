@@ -1,5 +1,6 @@
 // Services/HtmlTransformService.cs
 
+using System.Text.Json;
 using AngleSharp;
 using AngleSharp.Dom;
 using AngleSharp.Html;
@@ -93,6 +94,37 @@ public static class HtmlTransformService
         return target;
     }
 
+    public static async Task InsertBeforeAsync(PutDocState state, Guid snippetId, string puid, string html)
+    {
+        var page = state.CurrentPage();
+        if (page is null) return;
+        state.SelectSnippet(snippetId);
+        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
+        if (snip is null) return;
+
+        var doc = await Ctx.OpenAsync(req => req.Content(snip.Html ?? ""));
+        var root = doc.Body!;
+
+        // Ensure actionable elements at least have *some* puid (for future)
+        foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
+            EnsurePuid(el);
+
+        var target = FindByPuid(root, puid);
+        
+        target.Insert(AdjacentPosition.BeforeBegin, html);
+        
+        foreach (var el in target.QuerySelectorAll(HtmlPuid.query))
+            EnsurePuid(el);
+        
+        ReassignDuplicatePuids(root);
+        var newHtml = SerializeFragment(root);
+        if (!string.Equals(newHtml, snip.Html, StringComparison.Ordinal))
+        {
+            await state.SetSnippetHtml(newHtml, isRawFromEditor: false);
+        }
+        
+        state.SelectSnippet(snippetId);
+    }
     public static async Task<bool> ApplyAsync(PutDocState state, Guid snippetId, string action, string puid,
         string? path = null)
     {
@@ -121,7 +153,7 @@ public static class HtmlTransformService
             case "edit":
                 state.BeginSelectionEdit(snippetId, puid /* store puid here */, target.OuterHtml);
                 return true;
-
+            
             case "clone":
                 target.Insert(AdjacentPosition.AfterEnd, await FreshenPuids(target.OuterHtml));
                 changed = true;

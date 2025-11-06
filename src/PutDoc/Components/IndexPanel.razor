@@ -41,6 +41,13 @@ else { <em>Missing root collection.</em> }
             {
                 <div class="menu-popover">
                     <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteIntoCollection(collection.Id) ">Paste Into</button>
+                    
+                    @if (parent != null)
+                    {
+
+                        <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteBeforeCollection(parent.Id, collection.Id)">Paste before</button>
+                    }
+                    
                     <button type="button" class="btn" @onclick="() => CopyCollectionJson(collection.Id) ">Copy</button>
                     
                     @if (parent != null)
@@ -91,6 +98,8 @@ else { <em>Missing root collection.</em> }
                             @if (_menuOpenFor == pid)
                             {
                                 <div class="menu-popover">
+                                    <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteBeforePage( collection.Id, pid)">Paste before</button>
+                                    
                                     <button type="button" class="btn" title="Rename" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
                                     <button type="button" class="btn" title="Copy" @onclick="() => CopyPageJson(pid)">Copy</button>
                                     <button type="button" class="btn" title="Move Up" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.MovePage(collection.Id, pid, -1)">↑</button>
@@ -162,6 +171,72 @@ else { <em>Missing root collection.</em> }
             }
             default:
                 throw new InvalidDataException("Unrecognized export JSON. Expecting Page or Collection.");
+                break;
+        }
+    }
+
+    async void PasteBeforeCollection(Guid parentId, Guid currentCollectionId, string? json=null, bool overwrite = false)
+    {
+        if (!State.Doc.Collections.TryGetValue(currentCollectionId, out var collection)) return;
+        if (!State.Doc.Collections.TryGetValue(parentId, out var parent)) return;
+
+        if (json == null) json = await JS.InvokeAsync<string>("putdoc.readClipboardText"); 
+        
+        var parsed = PutDocDetect.ParsePageOrCollection(json);
+        switch (parsed.Kind)
+        {
+            case ExportPayloadKind.Page:
+            {
+                _ = JS.InvokeVoidAsync("putdoc.toast", "Page before Collection makes no sense");
+                break;
+            }
+            case ExportPayloadKind.Collection:
+            {
+                // Attach imported subtree under the current collection
+                var C = PutDocImport.ImportCollectionDeep(State.Doc, JsonSerializer.Serialize(parsed.Collection!, PutDocJson.Pretty),
+                    attachTo: parentId, overwrite: overwrite, true);
+
+                parent.ChildCollectionIds.Remove(C.Id);
+                parent.ChildCollectionIds.Insert(parent.ChildCollectionIds.FindIndex(cuid => cuid == currentCollectionId), C.Id);
+                
+                _ = State.SaveAsync();
+                State.Notify();
+                break;
+            }
+            default:
+                _ = JS.InvokeVoidAsync("putdoc.toast", "Text before Collection makes no sense");
+                break;
+        }
+    }
+
+    async void PasteBeforePage(Guid parentId, Guid currentPageId, string? json=null, bool overwrite = false)
+    {
+        if (!State.Doc.Pages.TryGetValue(currentPageId, out var curPage)) return;
+        if (!State.Doc.Collections.TryGetValue(parentId, out var parent)) return;
+
+        if (json == null) json = await JS.InvokeAsync<string>("putdoc.readClipboardText"); 
+        
+        var parsed = PutDocDetect.ParsePageOrCollection(json);
+        switch (parsed.Kind)
+        {
+            case ExportPayloadKind.Page:
+            {
+                var page = PutDocImport.ImportPageComplete(State.Doc, parsed.Page!, overwrite, newGuid: true);
+                parent.PageIds.Insert(parent.PageIds.FindIndex(cuid => cuid == currentPageId), page.Id);
+                
+                _ = State.SaveAsync();
+                State.Notify();
+
+                break;
+            }
+            case ExportPayloadKind.Collection:
+            {
+                _ = JS.InvokeVoidAsync("putdoc.toast", "Collection before Page makes no sense");
+                break;
+            }
+            default:
+                _ = JS.InvokeVoidAsync("putdoc.toast", "Text before Page makes no sense");
+                break;
         }
     }
 

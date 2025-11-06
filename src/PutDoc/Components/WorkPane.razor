@@ -36,6 +36,8 @@
                 @* <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button> *@
 
                 <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.AddSnippetBelow(snip.Id)'>＋</button>
+                <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => PasteIntoSnippet(snip.Id)'>Paste into</button>
+                
                 <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.DeleteSnippet(snip.Id)'>Delete</button>
                 <button type='button' class='btn' disabled="@State.IsReadOnlyOrFrozen" @onclick='() => State.CloneSnippet(snip.Id)'>Clone</button>
                 <button type='button' class='btn' @onclick='async () => CopyToClipboard(await HtmlPuid.StripPuidsAsync(snip.Html ?? ""))'>Copy</button>
@@ -100,11 +102,43 @@ else
             _ => ""
         };
 
+        State.SelectSnippet(snippetId);
         await State.SetSnippetHtml((snip.Html ?? "") + "\n" + add, isRawFromEditor: false);
         
-        State.SelectSnippet(snippetId);
+        
     }
 
+    async Task PasteIntoSnippet(Guid snippetId)
+    {
+        var page = State.CurrentPage(); if (page is null) return;
+        var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId); if (snip is null) return;
+
+        var text = await JS.InvokeAsync<string>("putdoc.readClipboardText"); 
+        
+        var parsed = PutDocDetect.ParsePageOrCollection(text);
+        switch (parsed.Kind)
+        {
+            case ExportPayloadKind.Page:
+            {
+                _ = JS.InvokeVoidAsync("putdoc.toast", "Page into Snippet makes no sense");
+                return;
+                break;
+            }
+            case ExportPayloadKind.Collection:
+            {
+                _ = JS.InvokeVoidAsync("putdoc.toast", "Collection into Snippet makes no sense");
+                return;
+                break;
+            }
+            default:
+                break;
+        }
+        
+        State.SelectSnippet(snippetId);
+        await State.SetSnippetHtml((snip.Html ?? "") + "\n" + text, isRawFromEditor: false);
+    }
+
+    
     // Acquire a snippet lock (per window) before selecting
     async Task EditSnippet(Guid id)
     {
