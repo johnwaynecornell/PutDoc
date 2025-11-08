@@ -433,51 +433,6 @@
             } else if (key === 'y') {
                 e.preventDefault(); // block native redo
                 dotnetRef.invokeMethodAsync('InvokeRedo');
-            } else if (key === 's') {
-                e.preventDefault(); // stop browser's Save dialog
-                dotnetRef.invokeMethodAsync('InvokeSaveNow');
-            }
-        };
-
-        ta.addEventListener('keydown', handler);
-        ta._pdKeysCleanup = () => ta.removeEventListener('keydown', handler);
-    };
-
-    window.putdocText.unbindEditorShortcuts = function (ta) {
-        if (!ta || !ta._pdKeysBound) return;
-        try {
-            ta._pdKeysCleanup && ta._pdKeysCleanup();
-        } catch {
-        }
-        ta._pdKeysBound = false;
-        delete ta._pdKeysCleanup;
-    };
-
-
-    // Keyboard shortcuts scoped to a specific textarea
-    window.putdocText.bindEditorShortcuts = function (ta, dotnetRef) {
-        if (!ta || ta._pdKeysBound) return;
-        ta._pdKeysBound = true;
-
-        const handler = (e) => {
-            // Only when textarea itself is focused
-            if (document.activeElement !== ta) return;
-
-            const ctrl = e.ctrlKey || e.metaKey; // support Cmd on macOS
-            if (!ctrl) return;
-
-            const key = (e.key || '').toLowerCase();
-
-            if (key === 'z') {
-                e.preventDefault(); // block native undo
-                if (e.shiftKey) {
-                    dotnetRef.invokeMethodAsync('InvokeRedo');
-                } else {
-                    dotnetRef.invokeMethodAsync('InvokeUndo');
-                }
-            } else if (key === 'y') {
-                e.preventDefault(); // block native redo
-                dotnetRef.invokeMethodAsync('InvokeRedo');
             }
         };
 
