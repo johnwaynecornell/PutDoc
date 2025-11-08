@@ -170,7 +170,7 @@ else { <em>Missing root collection.</em> }
                 break;
             }
             default:
-                throw new InvalidDataException("Unrecognized export JSON. Expecting Page or Collection.");
+                _ = JS.InvokeVoidAsync("putdoc.toast", "Text into Collection makes no sense");
                 break;
         }
     }
