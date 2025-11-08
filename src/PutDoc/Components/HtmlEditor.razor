@@ -209,8 +209,9 @@
                 StateHasChanged();
             }
         }
-        catch
+        catch (Exception E)
         {
+            Console.WriteLine("OnCheckpointRequested swallowed exception:" + E);
             // swallow—checkpointing should never block the action
         }
     }
@@ -425,11 +426,12 @@
                     _baselineCaretStart = sel.Start;
                     _baselineCaretEnd = sel.End;
                 }
-                catch
+                catch (Exception E)
                 {
-                    _baselineCaretStart = _baselineCaretEnd = 0;
-                }
-
+                    Console.WriteLine("SyncFromStateAsync swallowed exception:" + E);
+                    // swallow—checkpointing should never block the action
+                }    _baselineCaretStart = _baselineCaretEnd = 0;
+                
                 StateHasChanged();
             }
             return;
@@ -459,8 +461,9 @@
                 _baselineCaretStart = sel.Start;
                 _baselineCaretEnd = sel.End;
             }
-            catch
+            catch (Exception E)
             {
+                Console.WriteLine("SyncFromStateAsync swallowed exception:" + E);
                 _baselineCaretStart = _baselineCaretEnd = 0;
             }
             

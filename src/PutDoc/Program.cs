@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Components.Web;
 using PutDoc;
 using PutDoc.Components;
@@ -12,12 +13,21 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration
     .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
+// Raise the max message size (example: 1 MB)
+builder.Services.Configure<HubOptions>(options =>
+{
+    options.MaximumReceiveMessageSize = 1024 * 1024; // tune as needed
+});
+
 builder.Configuration.AddEnvironmentVariables(prefix: "PUTDOC_");
 
 builder.Services
     .AddRazorComponents()
-    .AddInteractiveServerComponents();   // ← enables Blazor Server interactivity
-
+    .AddInteractiveServerComponents()   // ← enables Blazor Server interactivity
+    .AddHubOptions(options =>
+    {
+        options.MaximumReceiveMessageSize = 1024 * 1024;
+    });
 // 👇 enable JS-activated root components
 builder.Services.AddServerSideBlazor(options =>
 {
@@ -59,6 +69,16 @@ app.UseStaticFiles();
 app.UseRouting();
 
 app.UseAntiforgery();
+
+app.Use((context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/_blazor"))
+    {
+        var feature = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        feature.MaxRequestBodySize = 1024 * 1024 * 1024;
+    }
+    return next();
+});
 
 // ✅ New endpoint-style hosting (no _Host.cshtml, no MapBlazorHub)
 app.MapRazorComponents<App>()
