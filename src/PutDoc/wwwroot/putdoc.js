@@ -16,6 +16,24 @@
         return '';
     };
 
+    window.putdoc.readClipboardHtmlOrNull = async function() {
+        if (navigator.clipboard && navigator.clipboard.read) {
+            try {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    if (item.types.includes('text/html')) {
+                        const blob = await item.getType('text/html');
+                        const html = await blob.text();
+                        return html || null;
+                    }
+                }
+            } catch {
+                return null;
+            }
+        }
+        return null;
+    };
+    
     window.putdoc.toast = function (message) {
         const div = document.createElement("div");
         div.textContent = message;

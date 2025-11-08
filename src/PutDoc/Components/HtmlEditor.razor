@@ -1,5 +1,6 @@
 @namespace PutDoc.Components
 @inject PutDoc.Services.PutDocState State
+@inject DocWriterService Writer;
 @inject IJSRuntime JS
 @using PutDoc.Services
 @implements IDisposable
@@ -25,14 +26,16 @@
   border:1px solid #ECC; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;">
 
     <div class="palette">    
-        <button type="button" class="btn" @onclick='() => InsertTpl("card")'>+ slf-card</button>
-        <button type="button" class="btn" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
-        <button type="button" class="btn" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("card")'>+ slf-card</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("brick")'>+ slf-brick</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("prompt")'>+ prompt</button>
         <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
-        <button type="button" class="btn" @onclick='() => InsertTpl("table")'>+ table</button>
-        <button type="button" class="btn" @onclick='() => InsertTpl("list")'>+ list</button>
-        <button type="button" class="btn" @onclick='() => InsertTpl("p")'>+ paragraph</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("table")'>+ table</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("list")'>+ list</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("p")'>+ paragraph</button>
         <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => PasteHtml()'>Paste Rich</button>
+        
     </div>
 
     <!-- Tag inserter + taggify -->
@@ -100,6 +103,8 @@
             await JS.InvokeVoidAsync("putdocText.bindCaretNotify", _ta, _selfRef);
         }
     }
+
+
 }
 
 <style>
@@ -252,6 +257,7 @@
     protected override void OnInitialized()
     {
         State.Changed += OnStateChanged;
+        Writer.WriterChanged += WriterOnWriterChanged;
         State.CheckpointRequested += OnCheckpointRequested;   // <—
         State.SaveRequested          += OnSaveRequested;
         State.ContextChangeRequested += OnContextChangeRequestedAsync;
@@ -274,6 +280,11 @@
             StateHasChanged();
         };
         _ = SyncFromStateAsync(force: true);
+    }
+
+    private void WriterOnWriterChanged(Guid arg1, WriterInfo? arg2)
+    {
+        _ = InvokeAsync(() => StateHasChanged());
     }
 
     private void OnStateChanged() => _ = InvokeAsync(() => SyncFromStateAsync(force: false));
@@ -647,6 +658,20 @@
         RedoClear();
     }
 
+    private async Task PasteHtml()
+    {
+        string ? html = await JS.InvokeAsync<string?>("putdoc.readClipboardHtmlOrNull");
+        if (html == null) return;
+        
+        await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, await HtmlSimplifier.SimplifyAsync(html));
+
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        StartDebounce();
+        RedoClear();
+    }
+    
+
     private void ExitFragment()
     {
         State.CancelSelectionEdit();
@@ -755,6 +780,7 @@
     public void Dispose()
     {
         State.Changed -= OnStateChanged;
+        Writer.WriterChanged -= WriterOnWriterChanged;
         State.CheckpointRequested -= OnCheckpointRequested;   // <—
         State.SaveRequested          -= OnSaveRequested;
         State.ContextChangeRequested -= OnContextChangeRequestedAsync;

@@ -23,3 +23,4 @@
 - The starter seeds an `.putDoc` with a Root `Collection` ("Index") and a single `Page` ("Welcome") with one snippet.
 - Replace `AngleSoftFilter` with your real filter logic.
 - Extend `IndexPanel` with create/move/clone/delete for Leafs/Pages as needed.
+- Your browser cache may need to be cleared if putdoc.js changes
