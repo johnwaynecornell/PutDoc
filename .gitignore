@@ -2,3 +2,5 @@
 bin/
 .idea
 obj/
+/src/PutDoc/Pages/Debug.razor
+UserDir/
