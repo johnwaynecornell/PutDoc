@@ -62,7 +62,45 @@ public static class HtmlSimplifier
             }
         }
     }
+    
+    public static void ReplaceElementWithChildren(IElement elementToUnwrap)
+    {
+        // Check if the element or its parent is null
+        if (elementToUnwrap?.Parent is null)
+        {
+            return;
+        }
 
+        var parent = elementToUnwrap.Parent;
+
+        // Snapshot children before mutations
+        var children = elementToUnwrap.ChildNodes.ToList();
+
+        // Move children in order
+        foreach (var child in children)
+        {
+            parent.InsertBefore(child, elementToUnwrap);
+        }
+
+        // Remove the original element
+        elementToUnwrap.Remove();
+
+        // Recurse: simplify each moved child safely
+        foreach (var child in children)
+        {
+            if (child is IElement childEl)
+            {
+                SimplifyElement(childEl);
+            }
+            else if (child.NodeType == NodeType.Text)
+            {
+                // Collapse whitespace like SimplifyNode would do
+                var collapsed = Regex.Replace(child.TextContent ?? string.Empty, "\\s+", " ");
+                child.TextContent = collapsed;
+            }
+        }
+    }
+    
     private static void SimplifyElement(IElement el)
     {
         // SVG: keep structure + attributes
@@ -80,19 +118,25 @@ public static class HtmlSimplifier
             return;
         }
 
-        // Map div-ish tags to <p>
+        // Map div-ish tags by unwrapping (flatten) — recursion handled in ReplaceElementWithChildren
         if (tag is "div" or "section" or "article" or "main")
         {
-            var doc = el.Owner;
-            if (doc != null)
-            {
-                var p = doc.CreateElement("p");
-                p.InnerHtml = el.InnerHtml;
-                el.Replace(p);
-                SimplifyNode(p);
-            }
+            ReplaceElementWithChildren(el);
             return;
         }
+        
+        if (tag is "code")
+        {
+            var doc = el.Owner;
+            var text = el.TextContent ?? string.Empty;
+
+            el.InnerHtml = string.Empty;
+            if (doc != null)
+            {
+                var tn = doc.CreateTextNode(text);
+                el.AppendChild(tn);
+            }
+        }  
 
         // If not allowed, unwrap into text (or children)
         if (!AllowedTags.Contains(tag))
@@ -101,9 +145,12 @@ public static class HtmlSimplifier
             var doc = parent?.Owner ?? el.Owner;
             if (parent != null && doc != null)
             {
-                // Keep textual content as a text node using public factory
                 var textNode = doc.CreateTextNode(el.TextContent ?? string.Empty);
                 parent.ReplaceChild(doc, textNode, el);
+
+                // Normalize text node (collapse whitespace)
+                var collapsed = Regex.Replace(textNode.TextContent ?? string.Empty, "\\s+", " ");
+                textNode.TextContent = collapsed;
             }
             else
             {
@@ -137,6 +184,8 @@ public static class HtmlSimplifier
                 el.RemoveAttribute(attr.Name);
             }
         }
+
+        if (tag is "code") return;
 
         SimplifyNode(el);
     }
