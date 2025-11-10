@@ -33,6 +33,101 @@
         }
         return null;
     };
+
+    // JavaScript
+    window.putdocCombo = {
+        init(input, options, dotnetRef /* optional: to push value */) {
+            const list = document.createElement('div');
+            list.className = 'pd-combo';
+            Object.assign(list.style, { position:'absolute', display:'none', overflowY:'auto', zIndex:10000 });
+            document.body.appendChild(list);
+
+            let rafId = 0;
+            function position() {
+                cancelAnimationFrame(rafId);
+                rafId = requestAnimationFrame(() => {
+                    const r = input.getBoundingClientRect();
+                    const vw = document.documentElement.clientWidth;
+                    const vh = document.documentElement.clientHeight;
+                    const minW = Math.min(r.width, vw * 0.9);
+                    const belowSpace = vh - r.bottom;
+                    const aboveSpace = r.top;
+                    const desired = Math.min(320, vh * 0.5);
+                    let maxH, top;
+                    if (belowSpace >= 160 || belowSpace >= aboveSpace) {
+                        maxH = Math.max(120, Math.min(desired, belowSpace - 8));
+                        top = r.bottom + window.scrollY;
+                    } else {
+                        maxH = Math.max(120, Math.min(desired, aboveSpace - 8));
+                        top = r.top + window.scrollY - maxH;
+                    }
+                    const left = Math.max(8, Math.min(r.left, vw - 8 - minW)) + window.scrollX;
+                    list.style.minWidth = `${minW}px`;
+                    list.style.maxHeight = `${maxH}px`;
+                    list.style.left = `${left}px`;
+                    list.style.top = `${top}px`;
+                });
+            }
+
+            // Debounced filter only updates suggestions, not the input value
+            let updId;
+            function update() {
+                clearTimeout(updId);
+                const q = (input.value || '').toLowerCase();
+                updId = setTimeout(() => {
+                    const items = options.filter(v => v.toLowerCase().includes(q)).slice(0, 200);
+                    render(items);
+                }, 0);
+            }
+
+            function render(items) {
+                list.innerHTML = '';
+                if (!items.length) { list.style.display = 'none'; return; }
+                for (const v of items) {
+                    const it = document.createElement('div');
+                    it.className = 'pd-combo-item';
+                    it.textContent = v;
+                    it.tabIndex = 0;
+                    it.onclick = () => commit(v);
+                    it.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(v); } };
+                    list.appendChild(it);
+                }
+                list.style.display = 'block';
+                position();
+            }
+
+            // Robust commit that survives re-renders
+            function commit(v) {
+                list.style.display = 'none';
+                // Next microtask: after potential Blazor re-render swaps the input
+                Promise.resolve().then(() => {
+                    // Re-query the input by name to survive node replacement
+                    const el = document.querySelector(`input[name="${input.name}"]`) || input;
+                    el.value = v;
+                    // Fire input + change with bubbles so @bind sees it
+                    el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+                    el.focus();
+                });
+            }
+
+            input.addEventListener('input', update);
+            input.addEventListener('focus', update);
+            input.addEventListener('blur', () => setTimeout(() => (list.style.display = 'none'), 150));
+            window.addEventListener('scroll', position, true);
+            window.addEventListener('resize', position);
+
+            return {
+                dispose() {
+                    clearTimeout(updId);
+                    cancelAnimationFrame(rafId);
+                    window.removeEventListener('scroll', position, true);
+                    window.removeEventListener('resize', position);
+                    list.remove();
+                }
+            };
+        }
+    };
     
     window.putdoc.toast = function (message) {
         const div = document.createElement("div");
@@ -1128,7 +1223,7 @@
 
     window.getTimeStamp = async function ()
     {
-        return "putdoc.js [2025-11-09-A]";
+        return "putdoc.js [2025-11-09-F]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
