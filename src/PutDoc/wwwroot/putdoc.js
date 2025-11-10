@@ -895,7 +895,7 @@
         function preclean(container) {
             // Remove wrapper rows that lost their block child (root cause of “mystery toolbars”)
             container.querySelectorAll('.pd-row-wrap').forEach(wrap => {
-                const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre');
+                const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre, :scope > svg');
                 if (!hasBlock) wrap.remove();
             });
 
@@ -1034,7 +1034,7 @@
                 preclean(container);
 
                 // Pass 1: whole-block hosts
-                container.querySelectorAll('ul, ol, pre').forEach(el => {
+                container.querySelectorAll('ul, ol, pre, svg').forEach(el => {
                     const puid = ensurePuid(el);
                     wrapBlockWithToolbar(el, snippetId, puid);
                 });
@@ -1221,9 +1221,9 @@
         }
     };
 
-    window.getTimeStamp = async function ()
+    window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-09-F]";
+        return "putdoc.js [2025-11-10-B]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
