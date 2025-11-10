@@ -1126,5 +1126,10 @@
         }
     };
 
-    console.log('putdoc.js [2025-10-24-C.23] loaded');
+    window.getTimeStamp = async function ()
+    {
+        return "putdoc.js [2025-11-09-A]";
+    }
+    
+    console.log(window.getTimeStamp() + " loaded");
 })();

@@ -2,12 +2,47 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 
-
 <div class="page">
   <main class="main">
-    @Body
+  @if (FailCondition)
+  {
+    <div style="background-color: #FFFFFF; padding: 1em; margin: 2em; border: 4px #000 solid; border-radius: 32px;"><h2 style="color: #FF0000">Error!!!!</h2> 
+      <div style="color: #808000"> expected script stamp 
+        <div style="color: #000000">"@expect"</div> 
+        but got
+        <div style="color: #000000">"@stamp"</div> 
+        <br>
+        try closing the browser page, resetting your browser cache, and reopening</div>
+    </div>
+  } else @Body;
+  -
   </main>
 </div>
+
+@code
+{
+  string expect = "putdoc.js [2025-11-09-B]";
+  string stamp = "NOT FOUND";
+
+  bool FailCondition = false;
+
+  protected override async Task OnInitializedAsync()
+  {
+    {
+      bool error = true;
+      try
+      {
+        if ((stamp = await JS.InvokeAsync<String>("window.getTimeStamp")) == expect) error = false;
+
+      }
+      catch 
+      {
+      }
+      
+      if (error) FailCondition = true;
+    }
+  }
+}
 
 <style>
     body{
