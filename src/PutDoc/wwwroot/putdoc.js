@@ -326,6 +326,18 @@
         return {init};
     })();
 
+    window.putdocUtil = window.putdocUtil || {};
+    window.putdocUtil.settle = function () {
+        // Wait a microtask + two paints
+        return Promise.resolve().then(() =>
+            new Promise(r => requestAnimationFrame(() =>
+                requestAnimationFrame(r)
+            ))
+        );
+    };
+    window.putdocUtil.afterNextPaint = function () {
+        return new Promise(r => requestAnimationFrame(r));
+    };
 
     // Ensure namespace
     window.putdocText = window.putdocText || (window.putdocText = ({}));
@@ -1344,7 +1356,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-10-D]";
+        return "putdoc.js [2025-11-10-E]";
     }
     
     console.log(window.getTimeStamp() + " loaded");

@@ -665,11 +665,18 @@
     {
         Guid puid = Guid.Parse(_puid.Substring(1));
         if (!LabelsForGoto.TryGetValue(puid, out var i)) return;
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, i, i);
-        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);        
-        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);        
-    }
 
+        // Ensure selection is applied and scroll has settled
+        await JS.InvokeVoidAsync("putdocUtil.settle"); // waits a couple of frames
+
+        // Move caret, let textarea auto-scroll, then wait one more frame
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, i, i);
+        await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+
+        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+    }
+    
     private TaskCompletionSource<PutDocState.ContextChangeDecision>? _confirmTcs;
     private bool _showConfirm;
     private string _confirmMessage = "You have unsaved changes. What would you like to do?";
