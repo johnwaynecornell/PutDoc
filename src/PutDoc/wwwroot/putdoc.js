@@ -437,6 +437,127 @@
 
     })(window.putdocText);
 
+    // ... existing code ...
+    (function () {
+        // Utility: measure caret pixel position in a textarea
+        function measureCaret(ta, pos) {
+            const cs = getComputedStyle(ta);
+
+            const mirror = document.createElement('div');
+            Object.assign(mirror.style, {
+                position: 'fixed',
+                left: '-99999px',
+                top: '0',
+                visibility: 'hidden',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word',
+                boxSizing: 'content-box',
+                width: ta.clientWidth + 'px',
+                fontFamily: cs.fontFamily,
+                fontSize: cs.fontSize,
+                lineHeight: cs.lineHeight,
+                letterSpacing: cs.letterSpacing,
+                paddingTop: cs.paddingTop,
+                paddingRight: cs.paddingRight,
+                paddingBottom: cs.paddingBottom,
+                paddingLeft: cs.paddingLeft
+            });
+            document.body.appendChild(mirror);
+
+            const val = ta.value || '';
+            const before = val.slice(0, pos).replace(/\n$/g, '\n\u200b');
+
+            mirror.textContent = before;
+            const probe = document.createElement('span');
+            probe.textContent = '\u200b';
+            mirror.appendChild(probe);
+
+            const mirrorRect = mirror.getBoundingClientRect();
+            const probeRect  = probe.getBoundingClientRect();
+
+            // Offsets inside the mirror (content-box) in viewport coords
+            const xInMirror = probeRect.left - mirrorRect.left;
+            const yInMirror = probeRect.top  - mirrorRect.top;
+
+            // Convert to textarea content coordinates by adding its internal scroll
+            const x = Math.max(0, xInMirror - ta.scrollLeft);
+            const y = Math.max(0, yInMirror - ta.scrollTop);
+
+            const lh = parseFloat(cs.lineHeight) || probeRect.height || 18;
+
+            mirror.remove();
+            return { x, y, lineH: lh };
+        }
+        window.putdocText = window.putdocText || {};
+
+        window.putdocText.flashCaretMarker = function(ta, duration = 800) {
+            try {
+                const pos = ta.selectionStart ?? 0;
+                const { x, y, lineH } = measureCaret(ta, pos);
+                const taRect = ta.getBoundingClientRect();
+
+                // If caret line is not visible, skip
+                const caretTopInViewport = taRect.top + y;
+                const caretBottomInViewport = caretTopInViewport + lineH;
+                const vh = document.documentElement.clientHeight;
+                if (caretBottomInViewport < 0 || caretTopInViewport > vh) return;
+
+                const marker = document.createElement('div');
+                Object.assign(marker.style, {
+                    position: 'fixed',
+                    left: (taRect.left + x) + 'px',
+                    top:  (taRect.top  + y) + 'px',
+                    width: '2px',
+                    height: lineH + 'px',
+                    background: '#ff3b30',
+                    borderRadius: '1px',
+                    boxShadow: '0 0 0 2px rgba(255,59,48,0.2)',
+                    opacity: '1',
+                    pointerEvents: 'none',
+                    zIndex: 2147483647,  // very on top
+                    transition: 'opacity 0.6s ease'
+                });
+                document.body.appendChild(marker);
+                const fadeAfter = Math.max(0, duration - 600);
+                setTimeout(() => { marker.style.opacity = '0'; setTimeout(() => marker.remove(), 650); }, fadeAfter);
+            } catch { /* ignore */ }
+        };
+
+        // Highlight current line briefly (viewport-fixed)
+        window.putdocText.flashCaretLine = function(ta, duration = 900) {
+            try {
+                const pos = ta.selectionStart ?? 0;
+                const { y, lineH } = measureCaret(ta, pos);
+                const taRect = ta.getBoundingClientRect();
+
+                const caretTopInViewport = taRect.top + y;
+                const caretBottomInViewport = caretTopInViewport + lineH;
+                const vh = document.documentElement.clientHeight;
+                if (caretBottomInViewport < 0 || caretTopInViewport > vh) return;
+
+                const width = taRect.width; // visible width in viewport
+                const bar = document.createElement('div');
+                Object.assign(bar.style, {
+                    position: 'fixed',
+                    left: taRect.left + 'px',
+                    top:  (taRect.top + y) + 'px',
+                    width: width + 'px',
+                    height: lineH + 'px',
+                    background: 'rgba(255, 235, 59, 0.25)',
+                    outline: '1px solid rgba(255, 193, 7, 0.5)',
+                    pointerEvents: 'none',
+                    zIndex: 2147483646,
+                    opacity: '1',
+                    transition: 'opacity 0.5s ease'
+                });
+                document.body.appendChild(bar);
+                const fadeAfter = Math.max(0, duration - 500);
+                setTimeout(() => { bar.style.opacity = '0'; setTimeout(() => bar.remove(), 520); }, fadeAfter);
+            } catch { /* ignore */ }
+        };
+    })();
+
     window.putdocText.bindTabIndent = function (ta) {
         if (!ta || ta._putdocTabBound) return;
         ta._putdocTabBound = true;
@@ -1223,7 +1344,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-10-B]";
+        return "putdoc.js [2025-11-10-D]";
     }
     
     console.log(window.getTimeStamp() + " loaded");

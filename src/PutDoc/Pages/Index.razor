@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject DebugMutators Debug
 @inject Microsoft.Extensions.Hosting.IHostEnvironment Env
+@inject PutDoc.Services.InitializationService Init
 
 @using System.Text.Json
 @using PutDoc.Components
@@ -380,6 +381,8 @@
 
      protected override async Task OnAfterRenderAsync(bool firstRender)
      {
+         await Init.CheckInit();
+         
          await DelayLoad();
          
          // Acquire doc writer once per loaded doc, after it’s on screen
@@ -417,7 +420,7 @@
              _splittersInited = true;
              // give the DOM a tick
              await Task.Yield();
-             await JS.InvokeVoidAsync("putdocLayout.initSplitters", "#putdocLayout");
+             await JS.InvokeVoidAsync("putdocLayout.initSplitters", "#putdocLayout"); 
          }
      }
 }

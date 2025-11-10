@@ -6,6 +6,7 @@
 @inject IDocCatalogService Catalog
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject PutDoc.Services.InitializationService Init
 
 <h3 class="font-semibold mb-2">PutDoc Library</h3>
 
@@ -156,6 +157,13 @@ else
     var id = await Catalog.CreateAsync(name, initialJson: contentJson);
     Nav.NavigateTo($"/doc/{id}");
   }
+
+  protected async override Task OnAfterRenderAsync(bool firstRender)
+  {
+    await Init.CheckInit();
+    await base.OnAfterRenderAsync(firstRender);
+  }
+
 }
 
 <style>

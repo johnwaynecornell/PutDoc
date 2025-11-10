@@ -53,9 +53,11 @@ builder.Services.AddSingleton<DocInvalidationService>();
 builder.Services.AddSingleton<PresenceService>();
 builder.Services.AddSingleton<RepairLogService>();
 
+
 //builder.Services.AddSingleton<IPutDocStore, PutDocStore>();
 builder.Services.AddScoped<PutDocState>();
 builder.Services.AddScoped<DebugMutators>();
+builder.Services.AddScoped<InitializationService>();
 
 var app = builder.Build();
 

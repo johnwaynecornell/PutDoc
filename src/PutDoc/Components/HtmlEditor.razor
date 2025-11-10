@@ -91,37 +91,43 @@
 
 @code {
     protected bool Rendered = false;
-    
+
     protected override async void OnAfterRender(bool firstRender)
     {
         if (firstRender)
         {
             await JS.InvokeVoidAsync("putdocText.bindTabIndent", _ta);
             await JS.InvokeVoidAsync("putdocText.initEditor", _ta);
-            
+
             _selfRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("putdocText.bindEditorShortcuts", _ta, _selfRef);
             await JS.InvokeVoidAsync("putdocText.bindCaretNotify", _ta, _selfRef);
             Rendered = true;
-            
+
+            State.GotoAction += GotoAction;
+
             StateHasChanged(); // causes the input to render next frame
             return;
-        
         }
-        
+
         if (_comboHandle is null && Rendered)
         {
             // Build options once (use your EffectiveTagOptions)
             var options = EffectiveTagOptions.ToArray();
             _comboHandle = await JS.InvokeAsync<IJSObjectReference>("putdocCombo.init", _tagInputRef, options);
         }
-        
+    }
+
+    private async void GotoAction(string obj)
+    {
+        await Goto(obj);
     }
 
 
 }
 
-<style>
+    
+    <style>
 .pd-modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.25);
 }
@@ -168,7 +174,9 @@
 </div>
 
 @code {
+
     private DotNetObjectReference<HtmlEditor>? _selfRef; // for JS callbacks
+
     // ===== UI state & editor buffer =====
     private string editorText = "";
     private ElementReference _ta;
@@ -189,14 +197,22 @@
     private const int DebounceMs = 600;
 
     // status
-    private enum SaveState { Idle, Typing, Saving, Saved }
+    private enum SaveState
+    {
+        Idle,
+        Typing,
+        Saving,
+        Saved
+    }
+
     private SaveState _saveState = SaveState.Idle;
+
     private string _statusText => _saveState switch
     {
         SaveState.Typing => "Typing…",
         SaveState.Saving => "Saving…",
-        SaveState.Saved  => "Saved",
-        _                => ""
+        SaveState.Saved => "Saved",
+        _ => ""
     };
 
     // selection/sync
@@ -212,12 +228,13 @@
 
     // ===== Undo/Redo (ring-list style) =====
     private sealed record UndoEntry(string Text, int SelStart, int SelEnd, string? Label = null);
+
     private readonly List<UndoEntry> _undo = new();
     private readonly List<UndoEntry> _redo = new();
     private bool _canUndo => _undo.Count > 0;
     private bool _canRedo => _redo.Count > 0;
     private const int MaxUndo = 100;
-    
+
     private async void OnCheckpointRequested(string label)
     {
         try
@@ -254,6 +271,7 @@
         if (_undo.Count >= MaxUndo) _undo.RemoveAt(0);
         _undo.Add(e);
     }
+
     private UndoEntry? UndoPop()
     {
         if (_undo.Count == 0) return null;
@@ -261,7 +279,9 @@
         _undo.RemoveAt(_undo.Count - 1);
         return e;
     }
+
     private void RedoPush(UndoEntry e) => _redo.Add(e);
+
     private UndoEntry? RedoPop()
     {
         if (_redo.Count == 0) return null;
@@ -269,6 +289,7 @@
         _redo.RemoveAt(_redo.Count - 1);
         return e;
     }
+
     private void RedoClear() => _redo.Clear();
 
     // baseline: last editor checkpoint (not necessarily persisted)
@@ -276,7 +297,7 @@
 
     // context key so we don’t mix undos across snippet/fragment
     private string _contextKey = "";
-    
+
     // Baseline caret that corresponds to _lastCheckpointText
     private int _baselineCaretStart = 0;
     private int _baselineCaretEnd = 0;
@@ -285,8 +306,8 @@
     {
         State.Changed += OnStateChanged;
         Writer.WriterChanged += WriterOnWriterChanged;
-        State.CheckpointRequested += OnCheckpointRequested;   // <—
-        State.SaveRequested          += OnSaveRequested;
+        State.CheckpointRequested += OnCheckpointRequested; // <—
+        State.SaveRequested += OnSaveRequested;
         State.ContextChangeRequested += OnContextChangeRequestedAsync;
         State.UiReset += OnUiReset;
 
@@ -299,9 +320,9 @@
             _saveEpoch++;
             _debounce?.Stop();
 
-            _pendingSave = false;   // don’t flush a queued save from pre-thaw
-            _isSaving    = false;   // UI unstuck
-            _isFrozen    = false;   // thaw
+            _pendingSave = false; // don’t flush a queued save from pre-thaw
+            _isSaving = false; // UI unstuck
+            _isFrozen = false; // thaw
 
             _saveState = SaveState.Saved; // neutral visual state (will update if we SaveNow)
             StateHasChanged();
@@ -348,7 +369,7 @@
 
         _ = InvokeAsync(StateHasChanged);
     }
-    
+
     private async Task ToggleScope()
     {
         if (!await State.EnsureClearForTextChangeInternalAsync()) return;
@@ -374,8 +395,8 @@
             _saveState = SaveState.Typing;
 
             State.MarkDirty();
-            RedoClear();        // new edits kill redo
-            StartDebounce();    // always start, even if frozen (we still checkpoint)
+            RedoClear(); // new edits kill redo
+            StartDebounce(); // always start, even if frozen (we still checkpoint)
         }
     }
 
@@ -435,8 +456,8 @@
         }
     }
 
-    
-    
+
+
     private async Task SyncFromStateAsync(bool force)
     {
         var wasFragment = _isFragmentMode;
@@ -450,14 +471,15 @@
 
             if (!_isSaving)
             {
-                editorText = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
+                UpdateEditorTextAndGotos(State.Selection.Html ?? "");
+
                 _lastSnippetId = State.Selection.SnippetId;
                 _lastSeenContentVersion = State.ContentVersion;
                 _saveState = SaveState.Idle;
 
                 EnsureContext();
                 _lastCheckpointText = editorText;
-                
+
                 try
                 {
                     var sel = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
@@ -468,10 +490,13 @@
                 {
                     Console.WriteLine("SyncFromStateAsync swallowed exception:" + E);
                     // swallow—checkpointing should never block the action
-                }    _baselineCaretStart = _baselineCaretEnd = 0;
-                
+                }
+
+                _baselineCaretStart = _baselineCaretEnd = 0;
+
                 StateHasChanged();
             }
+
             return;
         }
 
@@ -485,7 +510,8 @@
 
         if ((force || sid != _lastSnippetId || wasFragment || externalChangeOnSameSnippet) && !_isSaving)
         {
-            editorText = await HtmlPuid.StripPuidsAsync(snip?.Html ?? "");
+            UpdateEditorTextAndGotos(snip?.Html ?? "");
+
             _lastSnippetId = sid;
             _lastSeenContentVersion = State.ContentVersion;
             _saveState = SaveState.Idle;
@@ -504,7 +530,7 @@
                 Console.WriteLine("SyncFromStateAsync swallowed exception:" + E);
                 _baselineCaretStart = _baselineCaretEnd = 0;
             }
-            
+
             StateHasChanged();
         }
     }
@@ -523,14 +549,14 @@
             var caret = await JS.InvokeAsync<TextSelection>("putdocText.getCachedSel", _ta);
             _lastCheckpointText = editorText;
             _baselineCaretStart = caret.Start;
-            _baselineCaretEnd   = caret.End;
+            _baselineCaretEnd = caret.End;
 
             StateHasChanged();
         }
     }
 
     // ---- SAVE (no undo push here; checkpoint already advanced) ----
-    private async Task SaveAsync(bool force=false)
+    private async Task SaveAsync(bool force = false)
     {
         if (State.IsReadOnly) return;
 
@@ -575,7 +601,7 @@
                 var updated = await HtmlPuid.StripPuidsAsync(State.Selection.Html ?? "");
                 if (!string.Equals(editorText, updated, StringComparison.Ordinal))
                 {
-                    editorText = updated;
+                    UpdateEditorTextAndGotos(State.Selection.Html ?? "", updated);
                     didRewriteBuffer = true;
                 }
             }
@@ -590,7 +616,8 @@
                 var cleaned = await HtmlPuid.StripPuidsAsync(State.CurrentSnippet()?.Html ?? "");
                 if (!string.Equals(editorText, cleaned, StringComparison.Ordinal))
                 {
-                    editorText = cleaned;
+                    UpdateEditorTextAndGotos(State.CurrentSnippet()?.Html ?? "", cleaned);
+                    
                     didRewriteBuffer = true;
                 }
             }
@@ -609,11 +636,38 @@
             await JS.InvokeVoidAsync("putdocText.setSel", _ta, latest.Start, latest.End);
         }
     }
-    
+
     private void OnSaveRequested()
     {
         // Checkpoint-first is already in SaveNow(); respect Freeze (your SaveNow has the guard)
         _ = InvokeAsync(SaveNow);
+    }
+
+    protected Dictionary<Guid, int> LabelsForGoto = new Dictionary<Guid, int>();
+
+    protected async Task UpdateEditorTextAndGotos(string html, string? stripped = null)
+    {
+        if (stripped == null) stripped = await HtmlPuid.StripPuidsAsync(html);
+        List<Object> parsed = await HtmlPuid.ParsePuidsAsync(html, stripped);
+
+        LabelsForGoto = new Dictionary<Guid, int>();
+        int i = 0;
+        foreach (object o in parsed)
+        {
+            if (o is string s) i += s.Length;
+            if (o is Guid guid) LabelsForGoto[guid] = i;
+        }
+
+        editorText = stripped;
+    }
+
+    public async Task Goto(string _puid)
+    {
+        Guid puid = Guid.Parse(_puid.Substring(1));
+        if (!LabelsForGoto.TryGetValue(puid, out var i)) return;
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, i, i);
+        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);        
+        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);        
     }
 
     private TaskCompletionSource<PutDocState.ContextChangeDecision>? _confirmTcs;
@@ -812,6 +866,9 @@
         State.SaveRequested          -= OnSaveRequested;
         State.ContextChangeRequested -= OnContextChangeRequestedAsync;
         State.UiReset -= OnUiReset;
+        
+        State.GotoAction -= GotoAction;
+
         
         if (_debounce is not null)
         {

@@ -379,6 +379,17 @@
             return new { status = "ok" };
         }
 
+        if (action == "goto")
+        {
+            State.SelectSnippet(snippetId);
+            //await Task.Yield();
+            State.Notify();
+            
+            State.GotoAction(puid);
+            
+            return new { status = "ok" };
+        }
+        
         // Structural edits only make sense for the leader; non-leaders return readonly
         if (!_isLeader) return new { status = "readonly" };
 
@@ -496,6 +507,7 @@
     <button type=""button"" class=""btn""        data-act=""copy"">Copy</button>
     <button type=""button"" class=""btn""        data-act=""edit-inner"">Edit</button>
     <button type=""button"" class=""btn""        data-act=""edit-outer"">Edit&nbsp;Outer</button>
+    <button type=""button"" class=""btn""        data-act=""goto"">goto</button>
     <span class=""sep""></span>
     <button type=""button"" class=""btn""        {disable} data-act=""clone"">Clone</button>
     <button type=""button"" class=""btn""        {disable} data-act=""up"">↑</button>

@@ -1,0 +1,37 @@
+@page "/stale"
+@rendermode RenderMode.InteractiveServer
+
+@inject PutDoc.Services.PutDocState State
+@inject PutDoc.Services.InitializationService Init
+@inject NavigationManager Nav
+
+@using System.Text.Json
+@using PutDoc.Components
+@using Microsoft.AspNetCore.Components.Web   
+
+@inject IJSRuntime JS
+@inject IConfiguration Config
+
+@if (Init.FailCondition == true)
+{
+    <div style="background-color: #FFFFFF; padding: 1em; margin: 2em; border: 4px #000 solid; border-radius: 32px;">
+
+        <h2 style="color: #FF0000">Error!!!!</h2>
+        <div style="color: #808000"> expected script stamp
+            <div style="color: #000000">"@Init.expect"</div>
+            but got
+            <div style="color: #000000">"@Init.stamp"</div>
+            <br>
+            try closing the browser page, resetting your browser cache, and reopening</div>
+    </div>
+} 
+
+@code
+{
+    protected async override Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Init.FailCondition != true) Nav.NavigateTo("/"); 
+        
+        await base.OnAfterRenderAsync(firstRender);
+    }
+}

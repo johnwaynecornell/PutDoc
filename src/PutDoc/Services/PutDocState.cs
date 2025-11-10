@@ -1075,6 +1075,7 @@ public class PutDocState
 
     public SelectionEdit Selection { get; } = new(); // expose read-only object
 
+    public Action<string> GotoAction;
     public void BeginSelectionEdit(Guid snippetId, string selector, string html)
     {
         Selection.IsActive = true;
