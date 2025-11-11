@@ -659,23 +659,15 @@
         foreach (object o in parsed)
         {
             if (o is string s) i += s.Length;
-            if (o is Guid guid) LabelsForGoto[guid] = i;
+            if (o is Guid guid) LabelsForGoto[guid] = HtmlText.SeekFromAttribute(stripped, i, -1);
         }
     }
     
     protected async Task UpdateEditorTextAndGotos(string html, string? stripped = null)
     {
         if (stripped == null) stripped = await HtmlPuid.StripPuidsAsync(html);
-        List<Object> parsed = await HtmlPuid.ParsePuidsAsync(html, stripped);
-
-        LabelsForGoto = new Dictionary<Guid, int>();
-        int i = 0;
-        foreach (object o in parsed)
-        {
-            if (o is string s) i += s.Length;
-            if (o is Guid guid) LabelsForGoto[guid] = i;
-        }
-
+        await UpdateGotos(html, stripped);
+        
         editorText = stripped;
     }
 
