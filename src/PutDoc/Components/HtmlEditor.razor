@@ -592,7 +592,10 @@
                     replaceOuter: State.Selection.Scope == PutDocState.FragmentScope.Outer);
 
                 if (newHtml is not null)
+                {
                     await State.SetSnippetHtml(newHtml, isRawFromEditor: false);
+                    
+                }
             }
 
             await State.BeginFragmentEdit(State.Selection.SnippetId, State.Selection.Selector!, State.Selection.Scope);
@@ -604,7 +607,7 @@
                 {
                     UpdateEditorTextAndGotos(State.Selection.Html ?? "", updated);
                     didRewriteBuffer = true;
-                }
+                }  else UpdateGotos(State.Selection.Html ?? "", updated);
             }
             else userTyped = true;
         }
@@ -620,7 +623,7 @@
                     UpdateEditorTextAndGotos(State.CurrentSnippet()?.Html ?? "", cleaned);
                     
                     didRewriteBuffer = true;
-                }
+                } else UpdateGotos(State.CurrentSnippet()?.Html ?? "", cleaned);
             }
             else userTyped = true;
         }
@@ -646,6 +649,20 @@
 
     protected Dictionary<Guid, int> LabelsForGoto = new Dictionary<Guid, int>();
 
+    protected async Task UpdateGotos(string html, string? stripped = null)
+    {
+        if (stripped == null) stripped = await HtmlPuid.StripPuidsAsync(html);
+        List<Object> parsed = await HtmlPuid.ParsePuidsAsync(html, stripped);
+
+        LabelsForGoto = new Dictionary<Guid, int>();
+        int i = 0;
+        foreach (object o in parsed)
+        {
+            if (o is string s) i += s.Length;
+            if (o is Guid guid) LabelsForGoto[guid] = i;
+        }
+    }
+    
     protected async Task UpdateEditorTextAndGotos(string html, string? stripped = null)
     {
         if (stripped == null) stripped = await HtmlPuid.StripPuidsAsync(html);
