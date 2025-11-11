@@ -150,10 +150,6 @@ public static class HtmlTransformService
 
         switch (action)
         {
-            case "edit":
-                state.BeginSelectionEdit(snippetId, puid /* store puid here */, target.OuterHtml);
-                return true;
-            
             case "clone":
                 target.Insert(AdjacentPosition.AfterEnd, await FreshenPuids(target.OuterHtml));
                 changed = true;

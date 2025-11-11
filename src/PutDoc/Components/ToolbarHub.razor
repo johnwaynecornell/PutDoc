@@ -381,12 +381,13 @@
 
         if (action == "goto")
         {
-            State.SelectSnippet(snippetId);
-            //await Task.Yield();
-            State.Notify();
-            
-            State.GotoAction(puid);
-            
+            var ok = (State.Goto != null) && await State.Goto(puid);
+            if (!ok)
+            {
+                State.SelectSnippet(snippetId);
+                await State.Goto(puid);
+            }
+
             return new { status = "ok" };
         }
         
@@ -426,7 +427,7 @@
             if (!ok) return new { status = "error" };
         }
 
-        var structural = action is "paste-before" or "clone" or "delete" or "up" or "down" or "edit-outer";
+        var structural = action is "paste-before" or "clone" or "delete" or "up" or "down";
         if (structural)
             Invalidations.Bump(State.CurrentDocId, _sessionId, structural: true);
 

@@ -1075,17 +1075,8 @@ public class PutDocState
 
     public SelectionEdit Selection { get; } = new(); // expose read-only object
 
-    public Action<string> GotoAction;
-    public void BeginSelectionEdit(Guid snippetId, string selector, string html)
-    {
-        Selection.IsActive = true;
-        Selection.SnippetId = snippetId;
-        Selection.Selector = selector;
-        Selection.Html = html;
-        SelectedSnippetId = snippetId; // make sure editor focuses this snippet
-        Notify();
-    }
-
+    public Func<string, Task<bool>>? Goto;
+    
     public async Task BeginFragmentEdit(Guid snippetId, string puid, FragmentScope scope = FragmentScope.Inner)
     {
         // close other selection if different
@@ -1105,8 +1096,8 @@ public class PutDocState
         Selection.SnippetId = snippetId;
         Selection.Selector = puid;
         Selection.Scope = scope;
-        Selection.Html = await HtmlPuid.StripPuidsAsync(fragHtml);
-
+        Selection.Html = fragHtml;
+        
         SelectedSnippetId = snippetId;
         ContentVersion++;
         Notify();

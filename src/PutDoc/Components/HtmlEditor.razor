@@ -104,8 +104,8 @@
             await JS.InvokeVoidAsync("putdocText.bindCaretNotify", _ta, _selfRef);
             Rendered = true;
 
-            State.GotoAction += GotoAction;
-
+            State.Goto = Goto;
+            
             StateHasChanged(); // causes the input to render next frame
             return;
         }
@@ -118,6 +118,7 @@
         }
     }
 
+    
     private async void GotoAction(string obj)
     {
         await Goto(obj);
@@ -661,10 +662,10 @@
         editorText = stripped;
     }
 
-    public async Task Goto(string _puid)
+    public async Task<bool> Goto(string _puid)
     {
         Guid puid = Guid.Parse(_puid.Substring(1));
-        if (!LabelsForGoto.TryGetValue(puid, out var i)) return;
+        if (!LabelsForGoto.TryGetValue(puid, out var i)) return false;
 
         // Ensure selection is applied and scroll has settled
         await JS.InvokeVoidAsync("putdocUtil.settle"); // waits a couple of frames
@@ -675,6 +676,8 @@
 
         await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
         await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        
+        return true;
     }
     
     private TaskCompletionSource<PutDocState.ContextChangeDecision>? _confirmTcs;
@@ -874,8 +877,7 @@
         State.ContextChangeRequested -= OnContextChangeRequestedAsync;
         State.UiReset -= OnUiReset;
         
-        State.GotoAction -= GotoAction;
-
+        if (State.Goto == Goto) State.Goto = null;
         
         if (_debounce is not null)
         {
