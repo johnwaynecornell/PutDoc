@@ -501,8 +501,9 @@
         
         // Note: keep Edit buttons enabled; structural actions are disabled when RO.
         var html = $@"
-<div class=""menu-popover pd-toolbar-panel"" role=""menu"" data-kind=""{kind}"" {roAttr}>
-  <div class=""toolbar-row"">
+<div class=""menu-popover pd-toolbar-panel"" role=""menu"" data-kind=""{kind}"" {roAttr}> 
+  <div class=""pd-toolbar-row"">
+    <span class=""pd-toolbar-label"">{kind}</span>
     <button type=""button"" class=""btn""        data-act=""goto"">goto</button>
     
     <button type=""button"" class=""btn""        {disable} data-act=""paste-before"">Paste before</button>

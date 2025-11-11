@@ -40,16 +40,18 @@ else { <em>Missing root collection.</em> }
             @if (_menuOpenFor == collection.Id)
             {
                 <div class="menu-popover">
-                    <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteIntoCollection(collection.Id) ">Paste Into</button>
+                    <span class="pd-toolbar-label">Collection</span>
                     
+                    <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteIntoCollection(collection.Id)">Paste Into</button>
+
                     @if (parent != null)
                     {
 
                         <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteBeforeCollection(parent.Id, collection.Id)">Paste before</button>
                     }
-                    
-                    <button type="button" class="btn" @onclick="() => CopyCollectionJson(collection.Id) ">Copy</button>
-                    
+
+                    <button type="button" class="btn" @onclick="() => CopyCollectionJson(collection.Id)">Copy</button>
+
                     @if (parent != null)
                     {
                         <button type="button" class="btn" title="Move Up" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.MoveCollection(parent.Id, collection.Id, -1)">↑</button>
@@ -58,7 +60,7 @@ else { <em>Missing root collection.</em> }
 
                     <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.CreatePage(collection.Id)">+ Page</button>
                     <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.CreateCollection(collection.Id)">+ Collection</button>
-                    
+
                     @if (parent != null)
                     {
                         <button type="button" class="btn danger" title="Delete" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => State.DeleteCollection(collection.Id)">🗑 Delete</button>
@@ -98,6 +100,7 @@ else { <em>Missing root collection.</em> }
                             @if (_menuOpenFor == pid)
                             {
                                 <div class="menu-popover">
+                                    <span class="pd-toolbar-label">Page</span>
                                     <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteBeforePage( collection.Id, pid)">Paste before</button>
                                     
                                     <button type="button" class="btn" title="Rename" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PromptRenamePage(pid, p.Title)">✎ Rename</button>
@@ -279,4 +282,15 @@ else { <em>Missing root collection.</em> }
 .btn.primary { border-color:#5b9; }
 .btn.danger { border-color:#c77; }
 .child-collections { margin-left:1rem; }
+
+.pd-toolbar-label
+{
+    background: rgba(86, 127, 96, .2);
+    color: #0000F0;
+    padding: 0 .25rem;
+    border-radius: 4px;
+
+    border: #000000 1px solid;
+}
+
 </style>
