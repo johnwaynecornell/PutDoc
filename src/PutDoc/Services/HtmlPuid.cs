@@ -11,7 +11,7 @@ public static class HtmlPuid
     static readonly IBrowsingContext Ctx =
         BrowsingContext.New(Configuration.Default.WithDefaultLoader());
 
-    public static string query = ".slf-card, .slf-brick, .prompt_area, pre, ul, ol, li, svg";
+    public static string query = ".slf-card, .slf-brick, .prompt_area, pre, ul, ol, li, svg, table, p, h1, h2, h3, h4, h5";
     
     static void EnsurePuid(IElement el)
     {
