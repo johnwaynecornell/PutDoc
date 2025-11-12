@@ -34,6 +34,8 @@
         <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("p")'>+ paragraph</button>
         <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
         <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => PasteHtml()'>Paste Rich</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => Beautify()'>Beautify</button>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => Condense()'>Condense</button>
         
     </div>
     
@@ -770,7 +772,20 @@
         StartDebounce();
         RedoClear();
     }
+
+    private async Task Beautify()
+    {
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, 0, 0);
+        EditorText = await HtmlTransformService.BeautifyAsync(EditorText);
+
+    }
     
+    private async Task Condense()
+    {
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, 0, 0);
+        EditorText = await HtmlTransformService.CondenseAsync(EditorText);
+    }
+
 
     private void ExitFragment()
     {
