@@ -451,26 +451,30 @@
     
     // ... existing code ...
     (function () {
-        // Utility: measure caret pixel position in a textarea
+        // Content-box origin in viewport
+        function _contentBoxOrigin(ta) {
+            const r = ta.getBoundingClientRect();
+            const cs = getComputedStyle(ta);
+            const bl = parseFloat(cs.borderLeftWidth) || 0;
+            const bt = parseFloat(cs.borderTopWidth) || 0;
+            const pl = parseFloat(cs.paddingLeft) || 0;
+            const pt = parseFloat(cs.paddingTop) || 0;
+            return { left: r.left + bl + pl, top: r.top + bt + pt };
+        }
+
+// Accurate caret pixel in textarea content coords, using a DIV mirror
         function measureCaret(ta, pos) {
             const cs = getComputedStyle(ta);
 
-            // textarea mirror (exact wrap)
-            const mirror = document.createElement('textarea');
+            // Build a mirror DIV that matches the textarea CONTENT box
+            const mirror = document.createElement('div');
             const ms = mirror.style;
             ms.position = 'fixed';
             ms.left = '-99999px';
             ms.top = '0';
             ms.visibility = 'hidden';
-            ms.overflow = 'hidden';
-            ms.resize = 'none';
-            ms.boxSizing = cs.boxSizing || 'content-box';
+            ms.boxSizing = 'content-box';
             ms.width = ta.clientWidth + 'px';
-            ms.paddingTop = cs.paddingTop;
-            ms.paddingRight = cs.paddingRight;
-            ms.paddingBottom = cs.paddingBottom;
-            ms.paddingLeft = cs.paddingLeft;
-            ms.border = '0';
             ms.whiteSpace = 'pre-wrap';
             ms.wordBreak = 'break-word';
             ms.overflowWrap = 'break-word';
@@ -481,119 +485,90 @@
             ms.fontStyle = cs.fontStyle;
             ms.lineHeight = cs.lineHeight;
             ms.letterSpacing = cs.letterSpacing;
-
+            ms.padding = '0'; // already using content width
+            ms.border = '0';
             document.body.appendChild(mirror);
 
-            // multi-line line height sampling
-            mirror.value = 'X';
-            const h1 = mirror.scrollHeight;
-            const N = 6;
-            mirror.value = Array.from({ length: N }, () => 'X').join('\n');
-            const hN = mirror.scrollHeight;
-            let lineH = (hN - h1) / (N - 1);
-            if (!isFinite(lineH) || lineH < 8) {
-                const lh = parseFloat(cs.lineHeight);
-                if (isFinite(lh) && lh > 8) lineH = lh;
-            }
-            if (!isFinite(lineH) || lineH < 8) {
-                const fs = parseFloat(cs.fontSize) || 12;
-                lineH = Math.max(12, Math.round(fs * 1.25));
-            }
-
-            // caret y via visual line index
-            const text = ta.value || '';
-            const before = text.slice(0, pos);
-            mirror.value = before;
-            const padTop = parseFloat(cs.paddingTop) || 0;
-            const contentH = mirror.scrollHeight - padTop;
-            const visualLine = Math.max(0, Math.round(contentH / lineH) - 1); // 0-based
-            const y = Math.max(0, visualLine * lineH - ta.scrollTop);
-
-            // caret x: measure last visual line width modulo clientWidth
-            // Build a single-line probe with same font
+            // Fill with text up to pos and inject a zero-width probe at the caret
+            const val = ta.value || '';
+            const before = val.slice(0, pos).replace(/\n$/g, '\n\u200b'); // preserve trailing newline
+            mirror.textContent = before;
             const probe = document.createElement('span');
-            const ps = probe.style;
-            ps.position = 'fixed';
-            ps.left = '-99999px';
-            ps.top = '0';
-            ps.visibility = 'hidden';
-            ps.whiteSpace = 'pre';
-            ps.fontFamily = cs.fontFamily;
-            ps.fontSize = cs.fontSize;
-            ps.fontWeight = cs.fontWeight;
-            ps.fontStyle = cs.fontStyle;
-            ps.letterSpacing = cs.letterSpacing;
+            probe.textContent = '\u200b';
+            mirror.appendChild(probe);
 
-            // Get the last visual line text (naive: last logical line; good enough for monospace textarea)
-            const lastLine = before.split('\n').pop() || '';
-            probe.textContent = lastLine.replace(/\t/g, '        ');
-            document.body.appendChild(probe);
-            const fullWidth = probe.getBoundingClientRect().width;
-            const innerW = ta.clientWidth;
-            const xInLine = fullWidth % innerW; // wrap modulo
-            const x = Math.max(0, xInLine - ta.scrollLeft);
+            const mr = mirror.getBoundingClientRect();
+            const pr = probe.getBoundingClientRect();
 
-            probe.remove();
+            // Coordinates inside the content box (no padding/border)
+            let x = pr.left - mr.left;
+            let y = pr.top  - mr.top;
+
+            // Convert to textarea content coordinates by subtracting the textarea internal scroll
+            x -= ta.scrollLeft;
+            y -= ta.scrollTop;
+
+            // Line height from computed (fallback to probe height)
+            let lineH = parseFloat(cs.lineHeight);
+            if (!isFinite(lineH) || lineH <= 0) lineH = pr.height || Math.max(12, (parseFloat(cs.fontSize) || 12) * 1.25);
+
             mirror.remove();
 
-            return { x, y, lineH };
+            // Clamp to zero to avoid tiny negatives near top
+            return { x: Math.max(0, x), y: Math.max(0, y), lineH };
         }
 
-        // Use lineH exactly and do NOT add extra baseline offsets when drawing:
-        window.putdocText.flashCaretMarker = function(ta, duration = 800) {
+        window.putdocText.flashCaretMarker = async function(ta, duration = 800) {
             try {
+                // Ensure auto-scroll finished
+                await (window.putdocUtil?.settleScroll?.(ta) ?? Promise.resolve());
+                await new Promise(r => requestAnimationFrame(r));
+
                 const pos = ta.selectionStart ?? 0;
                 const { x, y, lineH } = measureCaret(ta, pos);
-                const taRect = ta.getBoundingClientRect();
+                const origin = _contentBoxOrigin(ta);
 
-                const top = taRect.top + y;
-                const left = taRect.left + x;
-
-                const vh = document.documentElement.clientHeight;
-                if (top + lineH < 0 || top > vh) return;
+                const left = origin.left + x;
+                const top  = origin.top  + y;
 
                 const marker = document.createElement('div');
                 const ms = marker.style;
                 ms.position = 'fixed';
                 ms.left = left + 'px';
-                ms.top = top + 'px';
+                ms.top  = top  + 'px';
                 ms.width = '2px';
                 ms.height = lineH + 'px';
                 ms.background = '#ff3b30';
                 ms.borderRadius = '1px';
                 ms.boxShadow = '0 0 0 2px rgba(255,59,48,0.2)';
-                ms.opacity = '1';
                 ms.pointerEvents = 'none';
                 ms.zIndex = 2147483647;
+                ms.opacity = '1';
                 ms.transition = 'opacity 0.6s ease';
                 document.body.appendChild(marker);
                 const t = Math.max(0, duration - 600);
                 setTimeout(() => { marker.style.opacity = '0'; setTimeout(() => marker.remove(), 650); }, t);
-            } catch (e)
-            {
-                console.error(e);
-            }
-
+            } catch {}
         };
 
-        window.putdocText.flashCaretLine = function(ta, duration = 900) {
+        window.putdocText.flashCaretLine = async function(ta, duration = 900) {
             try {
+                await (window.putdocUtil?.settleScroll?.(ta) ?? Promise.resolve());
+                await new Promise(r => requestAnimationFrame(r));
+
                 const pos = ta.selectionStart ?? 0;
                 const { y, lineH } = measureCaret(ta, pos);
-                const taRect = ta.getBoundingClientRect();
+                const origin = _contentBoxOrigin(ta);
 
-                const top = taRect.top + y;
-                const left = taRect.left;
-                const width = taRect.width;
-
-                const vh = document.documentElement.clientHeight;
-                if (top + lineH < 0 || top > vh) return;
+                const left  = origin.left;
+                const top   = origin.top + y;
+                const width = ta.clientWidth; // content width
 
                 const bar = document.createElement('div');
                 const bs = bar.style;
                 bs.position = 'fixed';
                 bs.left = left + 'px';
-                bs.top = top + 'px';
+                bs.top  = top  + 'px';
                 bs.width = width + 'px';
                 bs.height = lineH + 'px';
                 bs.background = 'rgba(255, 235, 59, 0.25)';
@@ -605,11 +580,7 @@
                 document.body.appendChild(bar);
                 const t = Math.max(0, duration - 500);
                 setTimeout(() => { bar.style.opacity = '0'; setTimeout(() => bar.remove(), 520); }, t);
-            } catch (e)
-            {
-                console.error(e);
-            }
-
+            } catch {}
         };
     })();
 
@@ -1405,7 +1376,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-10-F]";
+        return "putdoc.js [2025-11-10-H]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
