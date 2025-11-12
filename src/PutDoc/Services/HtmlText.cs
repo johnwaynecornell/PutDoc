@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace PutDoc.Services;
 
 public class HtmlText
@@ -130,4 +132,90 @@ public class HtmlText
         int gtPlusOne = SeekRightPastStartTagClose(html, start);
         return gtPlusOne;
     }
+
+    // public static int HtmlVarientsSync(string html_a, string html_b, int html_a_caret)
+    // {
+    //     int html_a_i = 0;
+    //     int html_b_i = 0;
+    //
+    //     while (html_a_i < html_a.Length)
+    //     {
+    //         if (html_a[html_a_i] <= ' ')
+    //         {
+    //             while (html_b[html_b_i] <= ' ') html_b_i++;
+    //             if (html_a_i++ == html_a_caret) 
+    //                 return html_b_i;
+    //             continue;
+    //         } else if (html_a[html_a_i] == html_b[html_b_i])
+    //         {
+    //             html_b_i++;
+    //             if (html_a_i++ == html_a_caret) 
+    //                 return html_b_i;
+    //
+    //         }
+    //         else if (html_b[html_b_i] <= ' ')
+    //         {
+    //             html_b_i++;
+    //         } else
+    //         {
+    //             throw new Exception();
+    //         }
+    //     }
+    //
+    //     return html_b_i;
+    // }
+    public static int HtmlVariantsSync(string a, string b, int aCaret)
+    {
+        int ai = 0, bi = 0;
+
+        // Normalize caret bounds
+        if (aCaret < 0) aCaret = 0;
+        if (aCaret > a.Length) aCaret = a.Length;
+
+        // Helper to test "ASCII whitespace" (matches your <= ' ' intent)
+        static bool IsWs(char c) => c <= ' ';
+
+        // Fast path: caret at start or end
+        if (aCaret == 0) return 0;
+
+        while (ai < a.Length || bi < b.Length)
+        {
+            // If we've arrived at the caret in A, return the current B position
+            if (ai == aCaret) return bi;
+
+            // Case 1: A has whitespace here → advance A by one, and skip ALL whitespace in B
+            if (ai < a.Length && IsWs(a[ai]))
+            {
+                ai++;
+                while (bi < b.Length && IsWs(b[bi])) bi++;
+                continue;
+            }
+
+            // Case 2: B has whitespace here (A does not) → skip B whitespace
+            if (bi < b.Length && (ai >= a.Length || !IsWs(a[ai])) && IsWs(b[bi]))
+            {
+                bi++;
+                continue;
+            }
+
+            // Case 3: Both have a character and they match → advance both
+            if (ai < a.Length && bi < b.Length && a[ai] == b[bi])
+            {
+                ai++; bi++;
+                continue;
+            }
+
+            // Case 4: One side is exhausted; allow trailing whitespace on the other
+            if (ai < a.Length && bi >= b.Length && IsWs(a[ai])) { ai++; continue; }
+            if (bi < b.Length && ai >= a.Length && IsWs(b[bi])) { bi++; continue; }
+
+            // Otherwise there is a non-whitespace difference → not a "variants" match
+            throw new InvalidOperationException(
+                $"HtmlVariantsSync mismatch at A[{ai}] vs B[{bi}] (non-whitespace diff).");
+        }
+
+        // If caret was exactly at a.Length, map to current B index
+        return bi;
+    }
+
 }

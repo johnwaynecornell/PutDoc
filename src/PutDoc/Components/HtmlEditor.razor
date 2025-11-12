@@ -228,6 +228,9 @@
 
     // ===== Freeze =====
     private bool _isFrozen = false;
+    // Transform guard: prevent autosave/state sync from clobbering caret after Beautify/Condense
+    private bool _isTransforming = false;
+
 
     // ===== Undo/Redo (ring-list style) =====
     private sealed record UndoEntry(string Text, int SelStart, int SelEnd, string? Label = null);
@@ -466,7 +469,8 @@
         var wasFragment = _isFragmentMode;
         _isFragmentMode = State.Selection.IsActive;
 
-        if (_saveState == SaveState.Typing) return;
+        // Don’t let external syncs stomp the buffer during a transform or while typing
+        if (_isTransforming || _saveState == SaveState.Typing) return;
 
         if (_isFragmentMode)
         {
@@ -565,6 +569,9 @@
 
         // Keep autosave blocked during freeze; allow manual “Save now”
         if (_isFrozen && !force) return;
+
+        // If a transform is in progress, skip save; debounce will re-run after transform
+        if (_isTransforming) return;
 
 
         var myEpoch = ++_saveEpoch;
@@ -774,17 +781,69 @@
     }
 
     private async Task Beautify()
-    {
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, 0, 0);
-        EditorText = await HtmlTransformService.BeautifyAsync(EditorText);
+        {
+            // Begin atomic transform
+            _isTransforming = true;
+            _debounce?.Stop();
+            _saveEpoch++; // cancel any in-flight save’s post-work
 
-    }
+            var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+
+            string source = EditorText;
+            string transform = await HtmlTransformService.BeautifyAsync(source);
+
+            // Directly set buffer without triggering external sync
+            editorText = transform;
+            _saveState = SaveState.Typing; // ensure a save will occur
+            State.MarkDirty();
+            RedoClear();
+
+            await InvokeAsync(StateHasChanged);
+
+            // Restore caret mapped through transform
+            await JS.InvokeVoidAsync("putdocUtil.settle");
+            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta,
+                HtmlText.HtmlVariantsSync(source, transform, curCaret.Start),
+                HtmlText.HtmlVariantsSync(source, transform, curCaret.End));
+            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+
+            // End atomic transform → restart debounce autosave
+            _isTransforming = false;
+            StartDebounce();
+        }
     
-    private async Task Condense()
-    {
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, 0, 0);
-        EditorText = await HtmlTransformService.CondenseAsync(EditorText);
-    }
+        private async Task Condense()
+        {
+            _isTransforming = true;
+            _debounce?.Stop();
+            _saveEpoch++;
+
+            var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+
+            string source = EditorText;
+            string transform = await HtmlTransformService.CondenseAsync(source);
+
+            editorText = transform;
+            _saveState = SaveState.Typing;
+            State.MarkDirty();
+            RedoClear();
+
+            await InvokeAsync(StateHasChanged);
+
+            await JS.InvokeVoidAsync("putdocUtil.settle");
+            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta,
+                HtmlText.HtmlVariantsSync(source, transform, curCaret.Start),
+                HtmlText.HtmlVariantsSync(source, transform, curCaret.End));
+            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+
+            _isTransforming = false;
+            StartDebounce();
+        }
+
 
 
     private void ExitFragment()
