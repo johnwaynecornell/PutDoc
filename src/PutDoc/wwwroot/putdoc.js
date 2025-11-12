@@ -448,125 +448,168 @@
 
 
     })(window.putdocText);
-
+    
     // ... existing code ...
     (function () {
         // Utility: measure caret pixel position in a textarea
         function measureCaret(ta, pos) {
             const cs = getComputedStyle(ta);
 
-            const mirror = document.createElement('div');
-            Object.assign(mirror.style, {
-                position: 'fixed',
-                left: '-99999px',
-                top: '0',
-                visibility: 'hidden',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                overflowWrap: 'break-word',
-                boxSizing: 'content-box',
-                width: ta.clientWidth + 'px',
-                fontFamily: cs.fontFamily,
-                fontSize: cs.fontSize,
-                lineHeight: cs.lineHeight,
-                letterSpacing: cs.letterSpacing,
-                paddingTop: cs.paddingTop,
-                paddingRight: cs.paddingRight,
-                paddingBottom: cs.paddingBottom,
-                paddingLeft: cs.paddingLeft
-            });
+            // textarea mirror (exact wrap)
+            const mirror = document.createElement('textarea');
+            const ms = mirror.style;
+            ms.position = 'fixed';
+            ms.left = '-99999px';
+            ms.top = '0';
+            ms.visibility = 'hidden';
+            ms.overflow = 'hidden';
+            ms.resize = 'none';
+            ms.boxSizing = cs.boxSizing || 'content-box';
+            ms.width = ta.clientWidth + 'px';
+            ms.paddingTop = cs.paddingTop;
+            ms.paddingRight = cs.paddingRight;
+            ms.paddingBottom = cs.paddingBottom;
+            ms.paddingLeft = cs.paddingLeft;
+            ms.border = '0';
+            ms.whiteSpace = 'pre-wrap';
+            ms.wordBreak = 'break-word';
+            ms.overflowWrap = 'break-word';
+            ms.tabSize = cs.tabSize || '8';
+            ms.fontFamily = cs.fontFamily;
+            ms.fontSize = cs.fontSize;
+            ms.fontWeight = cs.fontWeight;
+            ms.fontStyle = cs.fontStyle;
+            ms.lineHeight = cs.lineHeight;
+            ms.letterSpacing = cs.letterSpacing;
+
             document.body.appendChild(mirror);
 
-            const val = ta.value || '';
-            const before = val.slice(0, pos).replace(/\n$/g, '\n\u200b');
+            // multi-line line height sampling
+            mirror.value = 'X';
+            const h1 = mirror.scrollHeight;
+            const N = 6;
+            mirror.value = Array.from({ length: N }, () => 'X').join('\n');
+            const hN = mirror.scrollHeight;
+            let lineH = (hN - h1) / (N - 1);
+            if (!isFinite(lineH) || lineH < 8) {
+                const lh = parseFloat(cs.lineHeight);
+                if (isFinite(lh) && lh > 8) lineH = lh;
+            }
+            if (!isFinite(lineH) || lineH < 8) {
+                const fs = parseFloat(cs.fontSize) || 12;
+                lineH = Math.max(12, Math.round(fs * 1.25));
+            }
 
-            mirror.textContent = before;
+            // caret y via visual line index
+            const text = ta.value || '';
+            const before = text.slice(0, pos);
+            mirror.value = before;
+            const padTop = parseFloat(cs.paddingTop) || 0;
+            const contentH = mirror.scrollHeight - padTop;
+            const visualLine = Math.max(0, Math.round(contentH / lineH) - 1); // 0-based
+            const y = Math.max(0, visualLine * lineH - ta.scrollTop);
+
+            // caret x: measure last visual line width modulo clientWidth
+            // Build a single-line probe with same font
             const probe = document.createElement('span');
-            probe.textContent = '\u200b';
-            mirror.appendChild(probe);
+            const ps = probe.style;
+            ps.position = 'fixed';
+            ps.left = '-99999px';
+            ps.top = '0';
+            ps.visibility = 'hidden';
+            ps.whiteSpace = 'pre';
+            ps.fontFamily = cs.fontFamily;
+            ps.fontSize = cs.fontSize;
+            ps.fontWeight = cs.fontWeight;
+            ps.fontStyle = cs.fontStyle;
+            ps.letterSpacing = cs.letterSpacing;
 
-            const mirrorRect = mirror.getBoundingClientRect();
-            const probeRect  = probe.getBoundingClientRect();
+            // Get the last visual line text (naive: last logical line; good enough for monospace textarea)
+            const lastLine = before.split('\n').pop() || '';
+            probe.textContent = lastLine.replace(/\t/g, '        ');
+            document.body.appendChild(probe);
+            const fullWidth = probe.getBoundingClientRect().width;
+            const innerW = ta.clientWidth;
+            const xInLine = fullWidth % innerW; // wrap modulo
+            const x = Math.max(0, xInLine - ta.scrollLeft);
 
-            // Offsets inside the mirror (content-box) in viewport coords
-            const xInMirror = probeRect.left - mirrorRect.left;
-            const yInMirror = probeRect.top  - mirrorRect.top;
-
-            // Convert to textarea content coordinates by adding its internal scroll
-            const x = Math.max(0, xInMirror - ta.scrollLeft);
-            const y = Math.max(0, yInMirror - ta.scrollTop);
-
-            const lh = parseFloat(cs.lineHeight) || probeRect.height || 18;
-
+            probe.remove();
             mirror.remove();
-            return { x, y, lineH: lh };
-        }
-        window.putdocText = window.putdocText || {};
 
+            return { x, y, lineH };
+        }
+
+        // Use lineH exactly and do NOT add extra baseline offsets when drawing:
         window.putdocText.flashCaretMarker = function(ta, duration = 800) {
             try {
                 const pos = ta.selectionStart ?? 0;
                 const { x, y, lineH } = measureCaret(ta, pos);
                 const taRect = ta.getBoundingClientRect();
 
-                // If caret line is not visible, skip
-                const caretTopInViewport = taRect.top + y;
-                const caretBottomInViewport = caretTopInViewport + lineH;
+                const top = taRect.top + y;
+                const left = taRect.left + x;
+
                 const vh = document.documentElement.clientHeight;
-                if (caretBottomInViewport < 0 || caretTopInViewport > vh) return;
+                if (top + lineH < 0 || top > vh) return;
 
                 const marker = document.createElement('div');
-                Object.assign(marker.style, {
-                    position: 'fixed',
-                    left: (taRect.left + x) + 'px',
-                    top:  (taRect.top  + y) + 'px',
-                    width: '2px',
-                    height: lineH + 'px',
-                    background: '#ff3b30',
-                    borderRadius: '1px',
-                    boxShadow: '0 0 0 2px rgba(255,59,48,0.2)',
-                    opacity: '1',
-                    pointerEvents: 'none',
-                    zIndex: 2147483647,  // very on top
-                    transition: 'opacity 0.6s ease'
-                });
+                const ms = marker.style;
+                ms.position = 'fixed';
+                ms.left = left + 'px';
+                ms.top = top + 'px';
+                ms.width = '2px';
+                ms.height = lineH + 'px';
+                ms.background = '#ff3b30';
+                ms.borderRadius = '1px';
+                ms.boxShadow = '0 0 0 2px rgba(255,59,48,0.2)';
+                ms.opacity = '1';
+                ms.pointerEvents = 'none';
+                ms.zIndex = 2147483647;
+                ms.transition = 'opacity 0.6s ease';
                 document.body.appendChild(marker);
-                const fadeAfter = Math.max(0, duration - 600);
-                setTimeout(() => { marker.style.opacity = '0'; setTimeout(() => marker.remove(), 650); }, fadeAfter);
-            } catch { /* ignore */ }
+                const t = Math.max(0, duration - 600);
+                setTimeout(() => { marker.style.opacity = '0'; setTimeout(() => marker.remove(), 650); }, t);
+            } catch (e)
+            {
+                console.error(e);
+            }
+
         };
 
-        // Highlight current line briefly (viewport-fixed)
         window.putdocText.flashCaretLine = function(ta, duration = 900) {
             try {
                 const pos = ta.selectionStart ?? 0;
                 const { y, lineH } = measureCaret(ta, pos);
                 const taRect = ta.getBoundingClientRect();
 
-                const caretTopInViewport = taRect.top + y;
-                const caretBottomInViewport = caretTopInViewport + lineH;
-                const vh = document.documentElement.clientHeight;
-                if (caretBottomInViewport < 0 || caretTopInViewport > vh) return;
+                const top = taRect.top + y;
+                const left = taRect.left;
+                const width = taRect.width;
 
-                const width = taRect.width; // visible width in viewport
+                const vh = document.documentElement.clientHeight;
+                if (top + lineH < 0 || top > vh) return;
+
                 const bar = document.createElement('div');
-                Object.assign(bar.style, {
-                    position: 'fixed',
-                    left: taRect.left + 'px',
-                    top:  (taRect.top + y) + 'px',
-                    width: width + 'px',
-                    height: lineH + 'px',
-                    background: 'rgba(255, 235, 59, 0.25)',
-                    outline: '1px solid rgba(255, 193, 7, 0.5)',
-                    pointerEvents: 'none',
-                    zIndex: 2147483646,
-                    opacity: '1',
-                    transition: 'opacity 0.5s ease'
-                });
+                const bs = bar.style;
+                bs.position = 'fixed';
+                bs.left = left + 'px';
+                bs.top = top + 'px';
+                bs.width = width + 'px';
+                bs.height = lineH + 'px';
+                bs.background = 'rgba(255, 235, 59, 0.25)';
+                bs.outline = '1px solid rgba(255, 193, 7, 0.5)';
+                bs.pointerEvents = 'none';
+                bs.zIndex = 2147483646;
+                bs.opacity = '1';
+                bs.transition = 'opacity 0.5s ease';
                 document.body.appendChild(bar);
-                const fadeAfter = Math.max(0, duration - 500);
-                setTimeout(() => { bar.style.opacity = '0'; setTimeout(() => bar.remove(), 520); }, fadeAfter);
-            } catch { /* ignore */ }
+                const t = Math.max(0, duration - 500);
+                setTimeout(() => { bar.style.opacity = '0'; setTimeout(() => bar.remove(), 520); }, t);
+            } catch (e)
+            {
+                console.error(e);
+            }
+
         };
     })();
 
@@ -1028,7 +1071,7 @@
         function preclean(container) {
             // Remove wrapper rows that lost their block child (root cause of “mystery toolbars”)
             container.querySelectorAll('.pd-row-wrap').forEach(wrap => {
-                const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre, :scope > svg');
+                const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre, :scope > svg, :scope > table, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5');
                 if (!hasBlock) wrap.remove();
             });
 
@@ -1044,7 +1087,7 @@
             });
 
             // Guard against duplicate LI gears: only one direct toolbar per <li>
-            container.querySelectorAll('li').forEach(li => {
+            container.querySelectorAll('li, p').forEach(li => {
                 const toolbars = li.querySelectorAll(':scope > putdoc-toolbar');
                 for (let i = 1; i < toolbars.length; i++) toolbars[i].remove();
             });
@@ -1167,7 +1210,7 @@
                 preclean(container);
 
                 // Pass 1: whole-block hosts
-                container.querySelectorAll('ul, ol, pre, svg').forEach(el => {
+                container.querySelectorAll('ul, ol, pre, svg, table, h1, h2, h3, h4, h5').forEach(el => {
                     const puid = ensurePuid(el);
                     wrapBlockWithToolbar(el, snippetId, puid);
                 });
@@ -1182,6 +1225,12 @@
                 container.querySelectorAll('.slf-card, .slf-brick, .prompt_area').forEach(el => {
                     const puid = ensurePuid(el);
                     const kind = (el.classList[0] || el.tagName.toLowerCase());
+                    ensureToolbar(el, snippetId, puid, kind);
+                });
+
+                container.querySelectorAll('p').forEach(el => {
+                    const puid = ensurePuid(el);
+                    const kind = el.tagName.toLowerCase();
                     ensureToolbar(el, snippetId, puid, kind);
                 });
             });
@@ -1356,7 +1405,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-10-E]";
+        return "putdoc.js [2025-11-10-F]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
