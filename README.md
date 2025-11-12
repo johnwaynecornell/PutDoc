@@ -10,14 +10,9 @@
 
 ## Quick Start
 1. Install .NET 8 SDK.
-2. Unzip this repo.
+2. Clone this repo.
 3. Set the desired working directory in `appsettings.local.json` (`PutDocRootPath`), or pass via environment/config.
-4. From `src/PutDoc` run:
-   ```bash
-   dotnet restore
-   dotnet run
-   ```
-5. Browse to http://localhost:5000 (or shown URL).
+4. See QUICKSTART.md for more info
 
 ## Notes
 - The starter seeds an `.putDoc` with a Root `Collection` ("Index") and a single `Page` ("Welcome") with one snippet.
