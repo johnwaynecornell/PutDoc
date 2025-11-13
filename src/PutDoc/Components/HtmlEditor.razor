@@ -810,9 +810,12 @@
         {
             await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
             await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-
+            if (start != end) await JS.InvokeVoidAsync("putdocText.scrollToIndex",_ta, start, true);
+            
             await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
             await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+            
+            
         }
 
         // End atomic transform → restart debounce autosave

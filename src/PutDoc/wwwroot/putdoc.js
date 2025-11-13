@@ -459,7 +459,7 @@
             const pt = parseFloat(cs.paddingTop) || 0;
             return {left: r.left + bl + pl, top: r.top + bt + pt};
         }
-
+        window.putdocText._contentBoxOrigin = _contentBoxOrigin;
         function measureCaret(ta, pos) {
             const val = String(ta.value ?? '');
             pos = Math.max(0, Math.min(pos ?? 0, val.length));
@@ -549,7 +549,7 @@
             // Do NOT round x; sub-pixel precision is key near line starts
             return { x, lineTop: Math.round(lineTop), lineH: Math.round(lineH), textColumn };
         }
-
+        window.putdocText.measureCaret = measureCaret;
 
         window.putdocText.flashCaretMarker = async function (ta, duration = 800) {
             try {
@@ -638,6 +638,29 @@
         });
     };
 
+    window.putdocText.scrollToIndex = function (ta, index, center = false) {
+        if (!ta) return;
+        const rectInfo = window.putdocText.measureCaret(ta, index); // your existing function
+        const origin = window.putdocText._contentBoxOrigin(ta);
+
+        const targetY = origin.top + rectInfo.lineTop;
+        const lineH   = rectInfo.lineH;
+
+        const visibleTop    = ta.scrollTop;
+        const visibleBottom = ta.scrollTop + ta.clientHeight;
+        const caretTop      = rectInfo.lineTop;
+        const caretBottom   = caretTop + lineH;
+
+        if (center) {
+            // center that line in the view
+            ta.scrollTop = caretTop - (ta.clientHeight / 2) + (lineH / 2);
+        } else if (caretTop < visibleTop) {
+            ta.scrollTop = caretTop;
+        } else if (caretBottom > visibleBottom) {
+            ta.scrollTop = caretBottom - ta.clientHeight;
+        }
+    };
+    
     window.putdocText.indent = function (ta, outdent) {
 
         const el = ta;
@@ -1419,7 +1442,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-13-E]";
+        return "putdoc.js [2025-11-13-F]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
