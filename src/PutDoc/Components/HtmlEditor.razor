@@ -784,7 +784,7 @@
         RedoClear();
     }
 
-    private async Task Beautify()
+    private async Task ApplyWhitespaceTransform(string a, string b)
     {
         // Begin atomic transform
         _isTransforming = true;
@@ -792,12 +792,9 @@
         _saveEpoch++; // cancel any in-flight save’s post-work
 
         var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-
-        string source = EditorText;
-        string transform = (await HtmlTransformService.BeautifyAsync(source)).Trim();
-
+        
         // Directly set buffer without triggering external sync
-        editorText = transform;
+        editorText = b;
         _saveState = SaveState.Typing; // ensure a save will occur
         State.MarkDirty();
         RedoClear();
@@ -806,8 +803,8 @@
 
         await JS.InvokeVoidAsync("putdocUtil.settle");
 
-        int? start = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.Start);
-        int? end = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.End);
+        int? start = HtmlText.WhitespaceVariantsSync(a, b, curCaret.Start);
+        int? end = HtmlText.WhitespaceVariantsSync(a, b, curCaret.End);
 
         if (start != null && end != null)
         {
@@ -820,47 +817,19 @@
 
         // End atomic transform → restart debounce autosave
         _isTransforming = false;
-        StartDebounce();
+        StartDebounce();    
+    }
+
+    private async Task Beautify()
+    {
+        await ApplyWhitespaceTransform(editorText, (await HtmlTransformService.BeautifyAsync(editorText)).Trim());
     }
 
     private async Task Condense()
     {
-        _isTransforming = true;
-        _debounce?.Stop();
-        _saveEpoch++;
-
-        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
-
-        string source = EditorText;;
-        string transform = (await HtmlTransformService.CondenseAsync(source)).Trim();
-
-        editorText = transform;
-        _saveState = SaveState.Typing;
-        State.MarkDirty();
-        RedoClear();
-
-        await InvokeAsync(StateHasChanged);
-
-        await JS.InvokeVoidAsync("putdocUtil.settle");
-
-        int? start = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.Start);
-        int? end = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.End);
-
-        if (start != null && end != null)
-        {
-            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
-            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-
-            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
-            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
-        }
-
-        _isTransforming = false;
-        StartDebounce();
+        await ApplyWhitespaceTransform(editorText, (await HtmlTransformService.CondenseAsync(editorText)).Trim());
     }
-
-
-
+    
     private void ExitFragment()
     {
         State.CancelSelectionEdit();
