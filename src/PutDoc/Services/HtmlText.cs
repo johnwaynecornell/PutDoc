@@ -164,14 +164,20 @@ public class HtmlText
     //
     //     return html_b_i;
     // }
-    public static int HtmlVariantsSync(string a, string b, int aCaret)
+    
+    /// <summary>
+    /// Maps a caret position from string <paramref name="a"/> to its equivalent
+    /// position in string <paramref name="b"/> when the two strings differ
+    /// only by ASCII whitespace.  
+    /// Returns <c>null</c> if a non-whitespace difference is found.
+    /// </summary>
+    public static int? WhitespaceVariantsSync(string a, string b, int aCaret)
     {
         int ai = 0, bi = 0;
 
         // Normalize caret bounds
-        if (aCaret < 0) aCaret = 0;
-        if (aCaret > a.Length) aCaret = a.Length;
-
+        aCaret = Math.Clamp(aCaret, 0, a.Length);
+        
         // Helper to test "ASCII whitespace" (matches your <= ' ' intent)
         static bool IsWs(char c) => c <= ' ';
 
@@ -214,9 +220,7 @@ public class HtmlText
             if (bi < b.Length && ai >= a.Length && IsWs(b[bi])) { bi++; continue; }
 
             // Otherwise there is a non-whitespace difference → not a "variants" match
-            return -1;
-            //throw new InvalidOperationException(
-            //    $"HtmlVariantsSync mismatch at A[{ai}] vs B[{bi}] (non-whitespace diff).");
+            return null;
         }
 
         // If caret was exactly at a.Length, map to current B index

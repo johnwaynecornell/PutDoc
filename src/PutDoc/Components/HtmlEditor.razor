@@ -806,14 +806,17 @@
 
         await JS.InvokeVoidAsync("putdocUtil.settle");
 
-        int start = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.Start), 0);
-        int end = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.End), 0);
+        int? start = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.Start);
+        int? end = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.End);
 
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
-        await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-        
-        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
-        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        if (start != null && end != null)
+        {
+            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
+            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+
+            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        }
 
         // End atomic transform → restart debounce autosave
         _isTransforming = false;
@@ -840,14 +843,17 @@
 
         await JS.InvokeVoidAsync("putdocUtil.settle");
 
-        int start = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.Start), 0);
-        int end = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.End), 0);
+        int? start = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.Start);
+        int? end = HtmlText.WhitespaceVariantsSync(source, transform, curCaret.End);
 
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
-        await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-        
-        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
-        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        if (start != null && end != null)
+        {
+            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
+            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+
+            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        }
 
         _isTransforming = false;
         StartDebounce();
