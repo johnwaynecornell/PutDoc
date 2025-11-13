@@ -181,7 +181,8 @@ public class HtmlText
         while (ai < a.Length || bi < b.Length)
         {
             // If we've arrived at the caret in A, return the current B position
-            if (ai == aCaret) return bi;
+            if (ai == aCaret) 
+                return bi;
 
             // Case 1: A has whitespace here → advance A by one, and skip ALL whitespace in B
             if (ai < a.Length && IsWs(a[ai]))
@@ -210,8 +211,9 @@ public class HtmlText
             if (bi < b.Length && ai >= a.Length && IsWs(b[bi])) { bi++; continue; }
 
             // Otherwise there is a non-whitespace difference → not a "variants" match
-            throw new InvalidOperationException(
-                $"HtmlVariantsSync mismatch at A[{ai}] vs B[{bi}] (non-whitespace diff).");
+            return -1;
+            //throw new InvalidOperationException(
+            //    $"HtmlVariantsSync mismatch at A[{ai}] vs B[{bi}] (non-whitespace diff).");
         }
 
         // If caret was exactly at a.Length, map to current B index

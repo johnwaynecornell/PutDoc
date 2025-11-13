@@ -228,6 +228,7 @@
 
     // ===== Freeze =====
     private bool _isFrozen = false;
+
     // Transform guard: prevent autosave/state sync from clobbering caret after Beautify/Condense
     private bool _isTransforming = false;
 
@@ -603,7 +604,7 @@
                 if (newHtml is not null)
                 {
                     await State.SetSnippetHtml(newHtml, isRawFromEditor: false);
-                    
+
                 }
             }
 
@@ -616,7 +617,8 @@
                 {
                     UpdateEditorTextAndGotos(State.Selection.Html ?? "", updated);
                     didRewriteBuffer = true;
-                }  else UpdateGotos(State.Selection.Html ?? "", updated);
+                }
+                else UpdateGotos(State.Selection.Html ?? "", updated);
             }
             else userTyped = true;
         }
@@ -630,9 +632,10 @@
                 if (!string.Equals(editorText, cleaned, StringComparison.Ordinal))
                 {
                     UpdateEditorTextAndGotos(State.CurrentSnippet()?.Html ?? "", cleaned);
-                    
+
                     didRewriteBuffer = true;
-                } else UpdateGotos(State.CurrentSnippet()?.Html ?? "", cleaned);
+                }
+                else UpdateGotos(State.CurrentSnippet()?.Html ?? "", cleaned);
             }
             else userTyped = true;
         }
@@ -671,12 +674,12 @@
             if (o is Guid guid) LabelsForGoto[guid] = HtmlText.SeekFromAttribute(stripped, i, -1);
         }
     }
-    
+
     protected async Task UpdateEditorTextAndGotos(string html, string? stripped = null)
     {
         if (stripped == null) stripped = await HtmlPuid.StripPuidsAsync(html);
         await UpdateGotos(html, stripped);
-        
+
         editorText = stripped;
     }
 
@@ -694,10 +697,10 @@
 
         await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
         await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
-        
+
         return true;
     }
-    
+
     private TaskCompletionSource<PutDocState.ContextChangeDecision>? _confirmTcs;
     private bool _showConfirm;
     private string _confirmMessage = "You have unsaved changes. What would you like to do?";
@@ -721,6 +724,7 @@
         _showConfirm = false;
         _confirmTcs?.TrySetResult(PutDocState.ContextChangeDecision.Cancel);
     }
+
     private async void ConfirmSave()
     {
         _showConfirm = false;
@@ -730,7 +734,7 @@
         // Stop debounce and save immediately
         _debounce?.Stop();
         await SaveNow();
-        
+
         _confirmTcs?.TrySetResult(PutDocState.ContextChangeDecision.Save);
     }
 
@@ -751,12 +755,12 @@
     {
         var tpl = kind switch
         {
-            "card"   => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
-            "brick"  => "<div class=\"slf-brick\"><h3>BRICK</h3><p><b>Definition</b>: <span>...</span></p><div><b>Example</b>: <div>...</div></div></div>",
+            "card" => "<div class=\"slf-card\"><h3>Title</h3><p><b>Purpose</b>: <span>...</span></p><div><b>Content</b>: <div>...</div></div></div>",
+            "brick" => "<div class=\"slf-brick\"><h3>BRICK</h3><p><b>Definition</b>: <span>...</span></p><div><b>Example</b>: <div>...</div></div></div>",
             "prompt" => "<div class=\"prompt_area\"><h3>Prompt</h3><p>...</p></div>",
-            "table"  => "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
-            "list"   => "<ul><li>Item 1</li><li>Item 2</li></ul>",
-            _        => "<p>...</p>"
+            "table" => "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
+            "list" => "<ul><li>Item 1</li><li>Item 2</li></ul>",
+            _ => "<p>...</p>"
         };
 
         await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, tpl);
@@ -769,9 +773,9 @@
 
     private async Task PasteHtml()
     {
-        string ? html = await JS.InvokeAsync<string?>("putdoc.readClipboardHtmlOrNull");
+        string? html = await JS.InvokeAsync<string?>("putdoc.readClipboardHtmlOrNull");
         if (html == null) return;
-        
+
         await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, await HtmlSimplifier.SimplifyAsync(html));
 
         _saveState = SaveState.Typing;
@@ -781,68 +785,73 @@
     }
 
     private async Task Beautify()
-        {
-            // Begin atomic transform
-            _isTransforming = true;
-            _debounce?.Stop();
-            _saveEpoch++; // cancel any in-flight save’s post-work
+    {
+        // Begin atomic transform
+        _isTransforming = true;
+        _debounce?.Stop();
+        _saveEpoch++; // cancel any in-flight save’s post-work
 
-            var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
-            string source = EditorText;
-            string transform = await HtmlTransformService.BeautifyAsync(source);
+        string source = EditorText;
+        string transform = await HtmlTransformService.BeautifyAsync(source);
 
-            // Directly set buffer without triggering external sync
-            editorText = transform;
-            _saveState = SaveState.Typing; // ensure a save will occur
-            State.MarkDirty();
-            RedoClear();
+        // Directly set buffer without triggering external sync
+        editorText = transform;
+        _saveState = SaveState.Typing; // ensure a save will occur
+        State.MarkDirty();
+        RedoClear();
 
-            await InvokeAsync(StateHasChanged);
+        await InvokeAsync(StateHasChanged);
 
-            // Restore caret mapped through transform
-            await JS.InvokeVoidAsync("putdocUtil.settle");
-            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta,
-                HtmlText.HtmlVariantsSync(source, transform, curCaret.Start),
-                HtmlText.HtmlVariantsSync(source, transform, curCaret.End));
-            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
-            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        await JS.InvokeVoidAsync("putdocUtil.settle");
 
-            // End atomic transform → restart debounce autosave
-            _isTransforming = false;
-            StartDebounce();
-        }
-    
-        private async Task Condense()
-        {
-            _isTransforming = true;
-            _debounce?.Stop();
-            _saveEpoch++;
+        int start = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.Start), 0);
+        int end = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.End), 0);
 
-            var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
+        await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+        
+        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
 
-            string source = EditorText;
-            string transform = await HtmlTransformService.CondenseAsync(source);
+        // End atomic transform → restart debounce autosave
+        _isTransforming = false;
+        StartDebounce();
+    }
 
-            editorText = transform;
-            _saveState = SaveState.Typing;
-            State.MarkDirty();
-            RedoClear();
+    private async Task Condense()
+    {
+        _isTransforming = true;
+        _debounce?.Stop();
+        _saveEpoch++;
 
-            await InvokeAsync(StateHasChanged);
+        var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
-            await JS.InvokeVoidAsync("putdocUtil.settle");
-            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta,
-                HtmlText.HtmlVariantsSync(source, transform, curCaret.Start),
-                HtmlText.HtmlVariantsSync(source, transform, curCaret.End));
-            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
-            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        string source = EditorText;
+        string transform = await HtmlTransformService.CondenseAsync(source);
 
-            _isTransforming = false;
-            StartDebounce();
-        }
+        editorText = transform;
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        RedoClear();
+
+        await InvokeAsync(StateHasChanged);
+
+        await JS.InvokeVoidAsync("putdocUtil.settle");
+
+        int start = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.Start), 0);
+        int end = Math.Max(HtmlText.HtmlVariantsSync(source, transform, curCaret.End), 0);
+
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
+        await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+        
+        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+
+        _isTransforming = false;
+        StartDebounce();
+    }
 
 
 
@@ -859,19 +868,20 @@
         if (!_isFrozen && State.IsDirty) SaveNow();
         StateHasChanged();
     }
-    
+
     [JSInvokable] // called by putdoc.js (Ctrl/Cmd+Z)
     public Task InvokeUndo() => Undo();
 
     [JSInvokable] // called by putdoc.js (Ctrl+Y or Shift+Ctrl/Cmd+Z)
     public Task InvokeRedo() => Redo();
-    
+
     [JSInvokable]
     public Task InvokeSaveNow() => SaveNow();
-    
+
     private async Task Undo()
     {
-        var entry = UndoPop(); if (entry is null) return;
+        var entry = UndoPop();
+        if (entry is null) return;
 
         var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
         RedoPush(new UndoEntry(editorText, curCaret.Start, curCaret.End));
@@ -879,22 +889,23 @@
         editorText = entry.Text;
         _lastCheckpointText = entry.Text;
         _baselineCaretStart = entry.SelStart;
-        _baselineCaretEnd   = entry.SelEnd;
+        _baselineCaretEnd = entry.SelEnd;
 
         await InvokeAsync(StateHasChanged);
         await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
-        
+
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
-        
+
         await InvokeAsync(StateHasChanged);
 
     }
 
     private async Task Redo()
     {
-        var entry = RedoPop(); if (entry is null) return;
+        var entry = RedoPop();
+        if (entry is null) return;
 
         var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
         UndoPush(new UndoEntry(editorText, curCaret.Start, curCaret.End));
@@ -902,7 +913,7 @@
         editorText = entry.Text;
         _lastCheckpointText = entry.Text;
         _baselineCaretStart = entry.SelStart;
-        _baselineCaretEnd   = entry.SelEnd;
+        _baselineCaretEnd = entry.SelEnd;
 
         await InvokeAsync(StateHasChanged);
         await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
@@ -912,7 +923,7 @@
         await InvokeAsync(StateHasChanged);
 
     }
-    
+
     [JSInvokable]
     public Task NotifyCaretChanged(int start, int end)
     {
@@ -921,11 +932,12 @@
         if (string.Equals(editorText, _lastCheckpointText, StringComparison.Ordinal))
         {
             _baselineCaretStart = Math.Max(0, Math.Min(start, editorText.Length));
-            _baselineCaretEnd   = Math.Max(0, Math.Min(end,   editorText.Length));
+            _baselineCaretEnd = Math.Max(0, Math.Min(end, editorText.Length));
         }
+
         return Task.CompletedTask;
     }
-    
+
     private async Task SaveNow()
     {
         if (State.NeedsRepairReview) return;
@@ -935,7 +947,7 @@
         await CreateUndoCheckpointAsync();
         if (_isFrozen) Console.WriteLine("[HtmlEditor] info");
 
-        await SaveAsync(force:true);
+        await SaveAsync(force: true);
     }
 
     // private async Task SaveNow()
@@ -949,19 +961,19 @@
     //
     //     await SaveAsync();
     // }
-    
+
 
     public void Dispose()
     {
         State.Changed -= OnStateChanged;
         Writer.WriterChanged -= WriterOnWriterChanged;
-        State.CheckpointRequested -= OnCheckpointRequested;   // <—
-        State.SaveRequested          -= OnSaveRequested;
+        State.CheckpointRequested -= OnCheckpointRequested; // <—
+        State.SaveRequested -= OnSaveRequested;
         State.ContextChangeRequested -= OnContextChangeRequestedAsync;
         State.UiReset -= OnUiReset;
-        
+
         if (State.Goto == Goto) State.Goto = null;
-        
+
         if (_debounce is not null)
         {
             _debounce.Stop();
@@ -969,13 +981,33 @@
             _debounce = null;
         }
 
-        try { _ = JS.InvokeVoidAsync("putdocText.unbindEditorShortcuts", _ta); } catch { /* ignore */ }
-        try { _ = JS.InvokeVoidAsync("putdocText.unbindCaretNotify", _ta); } catch {}
+        try
+        {
+            _ = JS.InvokeVoidAsync("putdocText.unbindEditorShortcuts", _ta);
+        }
+        catch
+        {
+            /* ignore */
+        }
 
-        try { if (_comboHandle is not null) _ = _comboHandle.InvokeVoidAsync("dispose"); }
-        catch { }
+        try
+        {
+            _ = JS.InvokeVoidAsync("putdocText.unbindCaretNotify", _ta);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            if (_comboHandle is not null) _ = _comboHandle.InvokeVoidAsync("dispose");
+        }
+        catch
+        {
+        }
+
         _comboHandle = null;
-        
+
         _selfRef?.Dispose();
         _selfRef = null;
     }
@@ -985,18 +1017,19 @@
 
     private static readonly string[] DefaultTagOptions = new[]
     {
-        "div","p","h1","h2","h3",
-        "ul","ol","li",
-        "pre","code","span","strong","em",
+        "div", "p", "h1", "h2", "h3",
+        "ul", "ol", "li",
+        "pre", "code", "span", "strong", "em",
         "a href=\"\"",
         "img src=\"\" alt=\"\"",
-        "table","thead","tbody","tr","th","td",
-        "section","article","aside","header","footer",
+        "table", "thead", "tbody", "tr", "th", "td",
+        "section", "article", "aside", "header", "footer",
     };
+
     private IEnumerable<string> EffectiveTagOptions =>
         TagOptions is { } any && any.Any() ? TagOptions! : DefaultTagOptions;
 
-    private string?  _tagInput = null;
+    private string? _tagInput = null;
 
     private string? tagInput
     {
@@ -1007,14 +1040,14 @@
             //_ = InvokeAsync(StateHasChanged);
         }
     }
-    
+
     private ElementReference _tagInputRef;
     private IJSObjectReference? _comboHandle;
-    
+
     private static readonly HashSet<string> SelfClosing = new(StringComparer.OrdinalIgnoreCase)
     {
-        "area","base","br","col","embed","hr","img","input","link",
-        "meta","param","source","track","wbr"
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+        "meta", "param", "source", "track", "wbr"
     };
 
     private async Task InsertTagFromUi()
@@ -1047,7 +1080,7 @@
         }
         else
         {
-            var open  = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
+            var open = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
             var close = $"</{name}>";
             await JS.InvokeVoidAsync("putdocText.wrapSelection", _ta, open, close);
         }
@@ -1073,14 +1106,21 @@
             var open = attrs.Length > 0 ? $"<{name} {attrs}>" : $"<{name}>";
             return $"{open}</{name}>";
         }
+
         if (s.EndsWith("/>")) return s;
         var nm = ExtractTagName(s.AsSpan(1));
         if (string.IsNullOrEmpty(nm)) return s;
         if (SelfClosing.Contains(nm))
         {
-            if (!s.EndsWith("/>")) { s = s.TrimEnd('>'); s += " />"; }
+            if (!s.EndsWith("/>"))
+            {
+                s = s.TrimEnd('>');
+                s += " />";
+            }
+
             return s;
         }
+
         return s + $"</{nm}>";
     }
 
@@ -1092,9 +1132,10 @@
             var n = ExtractTagName(s.AsSpan(2));
             return (n, "", SelfClosing.Contains(n));
         }
+
         if (s.StartsWith("<")) s = s.TrimStart('<');
-        if (s.EndsWith(">"))   s = s.TrimEnd('>');
-        if (s.EndsWith("/"))   s = s.TrimEnd('/').TrimEnd();
+        if (s.EndsWith(">")) s = s.TrimEnd('>');
+        if (s.EndsWith("/")) s = s.TrimEnd('/').TrimEnd();
         var name = ExtractTagName(s.AsSpan());
         var attrs = s.Length > name.Length ? s.Substring(name.Length).TrimStart() : "";
         return (name, attrs, SelfClosing.Contains(name));
@@ -1108,12 +1149,19 @@
         while (i < span.Length)
         {
             char c = span[i];
-            if (char.IsLetterOrDigit(c) || c == ':' || c == '-') { i++; continue; }
+            if (char.IsLetterOrDigit(c) || c == ':' || c == '-')
+            {
+                i++;
+                continue;
+            }
+
             break;
         }
+
         return (i > start) ? span.Slice(start, i - start).ToString() : "";
     }
 
     // Strongly-typed DTO for JS interop
     public record TextSelection(int Start, int End);
+
 }
