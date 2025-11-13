@@ -794,7 +794,7 @@
         var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
         string source = EditorText;
-        string transform = await HtmlTransformService.BeautifyAsync(source);
+        string transform = (await HtmlTransformService.BeautifyAsync(source)).Trim();
 
         // Directly set buffer without triggering external sync
         editorText = transform;
@@ -828,8 +828,8 @@
 
         var curCaret = await JS.InvokeAsync<TextSelection>("putdocText.getSel", _ta);
 
-        string source = EditorText;
-        string transform = await HtmlTransformService.CondenseAsync(source);
+        string source = EditorText;;
+        string transform = (await HtmlTransformService.CondenseAsync(source)).Trim();
 
         editorText = transform;
         _saveState = SaveState.Typing;
