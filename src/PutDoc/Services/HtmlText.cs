@@ -181,8 +181,11 @@ public class HtmlText
         while (ai < a.Length || bi < b.Length)
         {
             // If we've arrived at the caret in A, return the current B position
-            if (ai == aCaret) 
+            if (ai == aCaret)
+            {
+                while (bi < b.Length && IsWs(b[bi])) bi++;
                 return bi;
+            }
 
             // Case 1: A has whitespace here → advance A by one, and skip ALL whitespace in B
             if (ai < a.Length && IsWs(a[ai]))
