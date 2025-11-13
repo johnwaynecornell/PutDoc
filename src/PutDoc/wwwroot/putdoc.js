@@ -450,111 +450,6 @@
     })(window.putdocText);
     
     (function () {
-        // Content-box origin in viewport
-        function _contentBoxOrigin(ta) {
-            const r = ta.getBoundingClientRect();
-            const cs = getComputedStyle(ta);
-            const bl = parseFloat(cs.borderLeftWidth) || 0;
-            const bt = parseFloat(cs.borderTopWidth) || 0;
-            const pl = parseFloat(cs.paddingLeft) || 0;
-            const pt = parseFloat(cs.paddingTop) || 0;
-            return {left: r.left + bl + pl, top: r.top + bt + pt};
-        }
-
-        function expandTabsToColumns(str, tabSize) {
-            if (!str || str.indexOf('\t') === -1) return str;
-            let out = '';
-            let col = 0;
-            for (let i = 0; i < str.length; i++) {
-                const ch = str[i];
-                if (ch === '\n') {
-                    out += ch;
-                    col = 0;
-                    continue;
-                }
-                if (ch === '\t') {
-                    const spaces = tabSize - (col % tabSize);
-                    out += ' '.repeat(spaces);
-                    col += spaces;
-                    continue;
-                }
-                out += ch;
-                col += 1;
-            }
-            return out;
-        }
-
-        // function _contentBoxOriginAndWidth(ta) {
-        //     const r = ta.getBoundingClientRect();
-        //     const cs = getComputedStyle(ta);
-        //     const bl = parseFloat(cs.borderLeftWidth) || 0;
-        //     const bt = parseFloat(cs.borderTopWidth) || 0;
-        //     const br = parseFloat(cs.borderRightWidth) || 0;
-        //     const bb = parseFloat(cs.borderBottomWidth) || 0;
-        //     const pl = parseFloat(cs.paddingLeft) || 0;
-        //     const pt = parseFloat(cs.paddingTop) || 0;
-        //     const pr = parseFloat(cs.paddingRight) || 0;
-        //     const pb = parseFloat(cs.paddingBottom) || 0;
-        //
-        //     const left = r.left + bl + pl;
-        //     const top  = r.top  + bt + pt;
-        //
-        //     // Use fractional CSS pixel width for content box
-        //     //const width = Math.max(0, r.width - (bl + br + pl + pr));
-        //     const width = Math.max(0, r.right - r.left - (bl + br + pl + pr));
-        //     return { left, top, width };
-        // }
-        // Toggleable debug logging
-        window.putdocText = window.putdocText || {};
-        window.putdocText._dbg = {enabled: false};
-        window.putdocText.setDebug = (on) => (window.putdocText._dbg.enabled = !!on);
-
-        function _log(tag, data) {
-            try {
-                if (!window.putdocText._dbg.enabled) return;
-                console.table([{tag, ...data}]);
-            } catch {
-            }
-        }
-
-// Dump geometry of the textarea
-        window.putdocText.dumpTaMetrics = function (ta) {
-            const r = ta.getBoundingClientRect();
-            const cs = getComputedStyle(ta);
-            const bl = parseFloat(cs.borderLeftWidth) || 0;
-            const bt = parseFloat(cs.borderTopWidth) || 0;
-            const br = parseFloat(cs.borderRightWidth) || 0;
-            const bb = parseFloat(cs.borderBottomWidth) || 0;
-            const pl = parseFloat(cs.paddingLeft) || 0;
-            const pt = parseFloat(cs.paddingTop) || 0;
-            const pr = parseFloat(cs.paddingRight) || 0;
-            const pb = parseFloat(cs.paddingBottom) || 0;
-
-            const rectContentW = r.width - (bl + br + pl + pr);
-            _log('ta-metrics', {
-                rectW: r.width, clientW: ta.clientWidth, offsetW: ta.offsetWidth,
-                bl, br, pl, pr, rectContentW,
-                scrollW: ta.scrollWidth, scrollH: ta.scrollHeight,
-                clientH: ta.clientHeight, scrollTop: ta.scrollTop, scrollLeft: ta.scrollLeft,
-                devicePixelRatio: window.devicePixelRatio
-            });
-        };
-
-        // 
-        function _copyTextAreaStyles(src, dst) {
-            const cs = getComputedStyle(src);
-            const props = [
-                'boxSizing', 'width', 'minWidth', 'maxWidth', 'height',
-                'whiteSpace', 'overflowWrap', 'wordBreak',
-                'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wordSpacing',
-                'textIndent', 'textTransform', 'textRendering', 'fontKerning', 'fontVariantLigatures',
-                'direction', 'textAlign', 'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
-                'border', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth'
-            ];
-            for (const p of props) dst.style[p] = cs[p] || '';
-        }
-
-
         function _contentBoxOrigin(ta) {
             const r = ta.getBoundingClientRect();
             const cs = getComputedStyle(ta);
@@ -1524,7 +1419,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-13-D]";
+        return "putdoc.js [2025-11-13-E]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
