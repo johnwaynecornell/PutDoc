@@ -5,7 +5,7 @@ namespace PutDoc.Services;
 
 public class InitializationService
 {
-    public string expect = "putdoc.js [2025-11-10-H]";
+    public string expect = "putdoc.js [2025-11-13-D]";
     public string stamp = "NOT FOUND";
 
     public bool ? FailCondition = null;
