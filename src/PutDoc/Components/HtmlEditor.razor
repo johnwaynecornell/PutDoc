@@ -851,12 +851,16 @@
 
     private async Task Beautify()
     {
-        await ApplyWhitespaceTransform(editorText, (await HtmlTransformService.BeautifyAsync(editorText)).Trim());
+        await ApplyWhitespaceTransform(editorText, 
+            (await HtmlTransformService.BeautifyAsync(editorText)).Trim()
+            );
     }
 
     private async Task Condense()
     {
-        await ApplyWhitespaceTransform(editorText, (await HtmlTransformService.CondenseAsync(editorText)).Trim());
+        await ApplyWhitespaceTransform(editorText, 
+            (await HtmlTransformService.CondenseAsync(editorText)).Trim()
+            );
     }
     
     private void ExitFragment()
