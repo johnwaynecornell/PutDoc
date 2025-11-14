@@ -687,15 +687,9 @@
     {
         Guid puid = Guid.Parse(_puid.Substring(1));
         if (!LabelsForGoto.TryGetValue(puid, out var i)) return false;
-
-        // Ensure selection is applied and scroll has settled
-        await JS.InvokeVoidAsync("putdocUtil.settle"); // waits a couple of frames
-
-        // Move caret, let textarea auto-scroll, then wait one more frame
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, i, i);
-        await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-
-        FlashTextCaret();
+        
+        // Move caret
+        await TextSelect(i);
         return true;
     }
 
@@ -811,7 +805,19 @@
             // ignore – a newer FlashTextCaret() call superseded this one
         }
     }
-    
+
+    public async Task TextSelect(int? start, int? end = null)
+    {
+        if (end==null) end = start;
+        
+        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
+        await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
+        if (start != end) await JS.InvokeVoidAsync("putdocText.scrollToIndex", _ta, start, true);
+
+        FlashTextCaret();
+
+    }
+
     private async Task ApplyWhitespaceTransform(string a, string b)
     {
         // Begin atomic transform
@@ -836,12 +842,7 @@
 
         if (start != null && end != null)
         {
-            await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
-            await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
-            if (start != end) await JS.InvokeVoidAsync("putdocText.scrollToIndex",_ta, start, true);
-
-            FlashTextCaret();
-
+            TextSelect(start, end);
         }
 
         // End atomic transform → restart debounce autosave
@@ -900,7 +901,9 @@
         _baselineCaretEnd = entry.SelEnd;
 
         await InvokeAsync(StateHasChanged);
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
+        //await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
+        
+        await TextSelect(entry.SelStart, entry.SelEnd);
 
         _saveState = SaveState.Typing;
         State.MarkDirty();
@@ -924,7 +927,10 @@
         _baselineCaretEnd = entry.SelEnd;
 
         await InvokeAsync(StateHasChanged);
-        await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
+        //await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, entry.SelStart, entry.SelEnd);
+        
+        await TextSelect(entry.SelStart, entry.SelEnd);
+
         _saveState = SaveState.Typing;
         State.MarkDirty();
         StartDebounce();
