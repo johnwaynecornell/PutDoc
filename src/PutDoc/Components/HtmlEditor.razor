@@ -695,7 +695,7 @@
         await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, i, i);
         await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
 
-        Flash();
+        FlashTextCaret();
         return true;
     }
 
@@ -784,7 +784,7 @@
 
     private CancellationTokenSource? _flashCts;
 
-    private async Task Flash()
+    private async Task FlashTextCaret()
     {
         // cancel any in-flight flash so they don't stack
         _flashCts?.Cancel();
@@ -808,7 +808,7 @@
         }
         catch (TaskCanceledException)
         {
-            // ignore – a newer Flash() call superseded this one
+            // ignore – a newer FlashTextCaret() call superseded this one
         }
     }
     
@@ -840,7 +840,7 @@
             await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
             if (start != end) await JS.InvokeVoidAsync("putdocText.scrollToIndex",_ta, start, true);
 
-            Flash();
+            FlashTextCaret();
 
         }
 
