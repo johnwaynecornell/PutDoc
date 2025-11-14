@@ -695,9 +695,7 @@
         await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, i, i);
         await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
 
-        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
-        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
-
+        Flash();
         return true;
     }
 
@@ -784,6 +782,36 @@
         RedoClear();
     }
 
+    private CancellationTokenSource? _flashCts;
+
+    private async Task Flash()
+    {
+        // cancel any in-flight flash so they don't stack
+        _flashCts?.Cancel();
+        _flashCts = new CancellationTokenSource();
+        var token = _flashCts.Token;
+
+        // First flash
+        await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+        await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+
+        try
+        {
+            // Wait roughly one full cycle (marker 800ms + line 900ms + a bit)
+            await Task.Delay(1160, token);
+
+            if (token.IsCancellationRequested) return;
+
+            // Second flash
+            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
+            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
+        }
+        catch (TaskCanceledException)
+        {
+            // ignore – a newer Flash() call superseded this one
+        }
+    }
+    
     private async Task ApplyWhitespaceTransform(string a, string b)
     {
         // Begin atomic transform
@@ -811,11 +839,9 @@
             await JS.InvokeVoidAsync("putdocText.setSelAndCache", _ta, start, end);
             await JS.InvokeVoidAsync("putdocUtil.afterNextPaint");
             if (start != end) await JS.InvokeVoidAsync("putdocText.scrollToIndex",_ta, start, true);
-            
-            await JS.InvokeVoidAsync("putdocText.flashCaretMarker", _ta);
-            await JS.InvokeVoidAsync("putdocText.flashCaretLine", _ta);
-            
-            
+
+            Flash();
+
         }
 
         // End atomic transform → restart debounce autosave
