@@ -407,6 +407,8 @@
              }
          }
          
+         await JS.InvokeVoidAsync("putdoc.attachFlashToButtons");
+         
          if (firstRender)
          {
              _selfRef = DotNetObjectReference.Create(this);

@@ -100,7 +100,9 @@ code.inline_code{border:1px solid #333;}
     background:transparent;color:#0073aa;border-color:#bcd;
 }
 
-.highlight{background-color:#20ff40;border:1px solid #333;border-radius:3px;text-align:center;}
+.highlight{
+    background: #20ff40;
+    border:1px solid #333;border-radius:3px;text-align:center;}
 
 .symbol{
     background-color:#f0f0e8;font-family:'Courier New',Courier,monospace;font-size:13px;

@@ -551,6 +551,29 @@
         }
         window.putdocText.measureCaret = measureCaret;
 
+        window.putdoc.flashElement = async function (el)
+        {
+            el.classList.add("highlight");
+            el.classList.remove("btn");
+            
+            setTimeout(() => {
+                el.classList.remove("highlight");
+                el.classList.add("btn");
+            }, 800);
+        }
+
+        window.putdoc.attachFlashToButtons = function () {
+            const buttons = document.querySelectorAll(".btn");
+            buttons.forEach(btn => {
+                if (btn._pdFlashBound) return;
+                btn._pdFlashBound = true;
+
+                btn.addEventListener('click', () => {
+                    window.putdoc.flashElement(btn);
+                });
+            });
+        };
+        
         window.putdocText.flashCaretMarker = async function (ta, duration = 800) {
             try {
                 await (window.putdocUtil?.settleScroll?.(ta) ?? Promise.resolve());
@@ -1442,7 +1465,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-13-F]";
+        return "putdoc.js [2025-11-14-A]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
