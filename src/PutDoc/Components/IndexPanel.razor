@@ -32,9 +32,8 @@ else { <em>Missing root collection.</em> }
                     @(up_dn[_menuOpenFor == collection.Id])
                 </button>
                 <span>📁</span>
-                <input value="@collection.Title"
-                       @onchange="(e => State.RenameCollection(collection.Id, e.Value?.ToString() ?? collection.Title))"
-                       class="collection-title" />
+                <span>@collection.Title</span>
+                
             </summary>
 
             @if (_menuOpenFor == collection.Id)
@@ -49,6 +48,9 @@ else { <em>Missing root collection.</em> }
 
                         <button type="button" class="btn" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PasteBeforeCollection(parent.Id, collection.Id)">Paste before</button>
                     }
+                    
+                    <button type="button" class="btn" title="Rename" disabled="@State.IsReadOnlyOrFrozen" @onclick="() => PromptRenameCollection(collection.Id, collection.Title)">✎ Rename</button>
+
 
                     <button type="button" class="btn" @onclick="() => CopyCollectionJson(collection.Id)">Copy</button>
 
@@ -120,6 +122,14 @@ else { <em>Missing root collection.</em> }
         </details>;
     };
 
+    async Task PromptRenameCollection(Guid collectionId, string current)
+    {
+        var title = await JS.InvokeAsync<string>("prompt", "Rename collection:", current);
+        if (!string.IsNullOrWhiteSpace(title))
+            await State.RenameCollection(collectionId, title);
+    }
+
+    
     async Task PromptRenamePage(Guid pageId, string current)
     {
         var title = await JS.InvokeAsync<string>("prompt", "Rename page:", current);
