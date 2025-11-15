@@ -256,6 +256,7 @@ public class PutDocState
                 return false;
 
             case ContextChangeDecision.Discard:
+                ClearFrozen?.Invoke();
                 return true;
 
             case ContextChangeDecision.Save:
