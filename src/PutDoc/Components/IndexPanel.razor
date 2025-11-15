@@ -26,15 +26,15 @@ else { <em>Missing root collection.</em> }
     
     RenderFragment RenderCollection(Collection parent, Collection collection) => __builder =>
     {
-        <details open class="collection">
-            <summary class="collection-row">
+        <div open class="collection">
+            <div class="collection-row">
                 <button type="button" class="btn drop" @onclick="() => ToggleMenuFor(collection.Id)">
                     @(up_dn[_menuOpenFor == collection.Id])
                 </button>
                 <span>📁</span>
                 <span>@collection.Title</span>
                 
-            </summary>
+            </div>
 
             @if (_menuOpenFor == collection.Id)
             {
@@ -119,7 +119,7 @@ else { <em>Missing root collection.</em> }
                     }
                 </ul>
             }
-        </details>;
+        </div>;
     };
 
     async Task PromptRenameCollection(Guid collectionId, string current)
