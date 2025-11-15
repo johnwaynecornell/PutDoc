@@ -10,8 +10,14 @@ var builder = WebApplication.CreateBuilder(args);
 // Services
 
 // User/local overrides (not in repo, writable)
+builder.Configuration.Sources.Clear();
+
 builder.Configuration
-    .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+    .AddJsonFile("appsettings.local.json", optional: true, reloadOnChange: true)
+    // Optional: keep environment variables, but they will be below command line
+    .AddEnvironmentVariables(prefix: "PUTDOC_")
+    .AddCommandLine(args);  // command line last → highest precedence
 
 // Raise the max message size (example: 1 MB)
 builder.Services.Configure<HubOptions>(options =>
@@ -19,7 +25,6 @@ builder.Services.Configure<HubOptions>(options =>
     options.MaximumReceiveMessageSize = 1024 * 1024; // tune as needed
 });
 
-builder.Configuration.AddEnvironmentVariables(prefix: "PUTDOC_");
 
 builder.Services
     .AddRazorComponents()
