@@ -226,7 +226,14 @@ public static class HtmlTransformService
         foreach (var child in root.ChildNodes)
             WriteNode(child);
 
-        return sb.ToString();
+        var html = sb.ToString();
+        html = System.Text.RegularExpressions.Regex.Replace(
+            html,
+            @"\s*data-preserve-pre=""[^""]*""",
+            string.Empty,
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        return html;
     }
     // Add an optional knob; default = keep explicit end tags.
     public static async Task<string> CondenseAsync(string html, bool keepOptionalEndTags = true)
