@@ -1073,6 +1073,8 @@ public class PutDocState
 
         public FragmentScope Scope { get; set; } = FragmentScope.Inner;
     }
+    
+    public bool NeedCaretZeroed { get; set; } = true;
 
     public SelectionEdit Selection { get; } = new(); // expose read-only object
 
@@ -1080,9 +1082,7 @@ public class PutDocState
     
     public async Task BeginFragmentEdit(Guid snippetId, string puid, FragmentScope scope = FragmentScope.Inner)
     {
-        // close other selection if different
-        if (Selection.IsActive && (Selection.SnippetId != snippetId || Selection.Selector != puid || Selection.Scope != scope))
-            CancelSelectionEdit();
+       CancelSelectionEdit();
 
         var page = CurrentPage();
         if (page is null) return;
@@ -1120,6 +1120,7 @@ public class PutDocState
         Selection.SnippetId = default;
         Selection.Selector = "";
         Selection.Html = "";
+        NeedCaretZeroed = true;
         Notify(); // triggers HtmlEditor to sync
     }
 

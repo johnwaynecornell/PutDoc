@@ -503,6 +503,12 @@
                 _baselineCaretStart = _baselineCaretEnd = 0;
 
                 await InvokeAsync(StateHasChanged);
+
+                if (State.NeedCaretZeroed)
+                {
+                    await TextSelect(0, 0);
+                    State.NeedCaretZeroed = false;
+                }
             }
 
             return;
@@ -540,6 +546,12 @@
             }
 
             await InvokeAsync(StateHasChanged);
+            
+            if (State.NeedCaretZeroed)
+            {
+                await TextSelect(0, 0);
+                State.NeedCaretZeroed = false;
+            }
         }
     }
 
