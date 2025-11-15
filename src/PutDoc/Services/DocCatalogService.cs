@@ -40,10 +40,15 @@ public sealed class DocCatalogService : IDocCatalogService
 
     public DocCatalogService(IConfiguration cfg, IHostEnvironment env)
     {
-        _baseDir = cfg["PutDocRootPath"]
-                           ?? cfg["ROOT"]              // from PUTDOC_ROOT
-                           ?? Directory.GetCurrentDirectory();
-        
+        var configuredBase = cfg["PutDocRootPath"];
+
+        _baseDir = configuredBase ?? Directory.GetCurrentDirectory();
+
+        if (configuredBase is null &&
+            !File.Exists(Path.Combine(_baseDir, "catalog.json")))
+        {
+            _baseDir = Path.Combine(_baseDir, "PutDoc.default");
+        }
         //_baseDir = Path.Combine(env.ContentRootPath, "App_Data", "PutDoc");
         Directory.CreateDirectory(_baseDir);
         _catalogPath = Path.Combine(_baseDir, "catalog.json");
