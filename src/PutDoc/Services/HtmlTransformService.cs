@@ -473,14 +473,14 @@ public static class HtmlTransformService
     {
         var doc = await Ctx.OpenAsync(req => req.Content(html));
         var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
-        return el?.InnerHtml;
+        return el?.InnerHtml.Trim();
     }
 
     public static async Task<string?> ExtractFragmentOuterByPuidAsync(string html, string puid)
     {
         var doc = await Ctx.OpenAsync(req => req.Content(html));
         var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
-        return el?.OuterHtml;
+        return el?.OuterHtml.Trim();
     }
 
     /// <summary>

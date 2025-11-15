@@ -502,7 +502,7 @@
 
                 _baselineCaretStart = _baselineCaretEnd = 0;
 
-                StateHasChanged();
+                await InvokeAsync(StateHasChanged);
             }
 
             return;
@@ -539,7 +539,7 @@
                 _baselineCaretStart = _baselineCaretEnd = 0;
             }
 
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -681,6 +681,8 @@
         await UpdateGotos(html, stripped);
 
         editorText = stripped;
+        _editVersion++;
+        _inputSerial++;
     }
 
     public async Task<bool> Goto(string _puid)

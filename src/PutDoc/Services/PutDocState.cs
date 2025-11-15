@@ -1080,7 +1080,7 @@ public class PutDocState
     public async Task BeginFragmentEdit(Guid snippetId, string puid, FragmentScope scope = FragmentScope.Inner)
     {
         // close other selection if different
-        if (Selection.IsActive && (Selection.SnippetId != snippetId || Selection.Selector != puid))
+        if (Selection.IsActive && (Selection.SnippetId != snippetId || Selection.Selector != puid || Selection.Scope != scope))
             CancelSelectionEdit();
 
         var page = CurrentPage();
