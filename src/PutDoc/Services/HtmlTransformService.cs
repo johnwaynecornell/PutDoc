@@ -238,7 +238,7 @@ public static class HtmlTransformService
     // Add an optional knob; default = keep explicit end tags.
     public static async Task<string> CondenseAsync(string html, bool keepOptionalEndTags = true)
     {
-        var doc  = await Ctx.OpenAsync(req => req.Content(html ?? string.Empty));
+        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
         var root = doc.Body ?? doc.DocumentElement;
 
         // Capture raw <pre> bytes but don't replace them
@@ -261,7 +261,7 @@ public static class HtmlTransformService
 
     public static async Task<string> BeautifyAsync(string html)
     {
-        var doc  = await Ctx.OpenAsync(req => req.Content(html ?? string.Empty));
+        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
         var root = doc.Body ?? doc.DocumentElement;
 
         var shields = CapturePreBlocks(root);

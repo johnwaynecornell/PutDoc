@@ -21,8 +21,9 @@ public static class HtmlPuid
 
     public static async Task<string> EnsurePuidsAsync(string html)
     {
-        var doc = await Ctx.OpenAsync(r => r.Content(html ?? ""));
+        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
         var root = doc.Body!;
+        
         foreach (var el in root.QuerySelectorAll(query))
             EnsurePuid(el);
         // Serialize fragment
@@ -31,13 +32,18 @@ public static class HtmlPuid
 
     public static async Task<string> StripPuidsAsync(string html)
     {
-        var doc = await Ctx.OpenAsync(r => r.Content(html ?? ""));
-        var root = doc.Body!;
-        foreach (var el in root.QuerySelectorAll("[data-puid]"))
-            el.RemoveAttribute("data-puid");
-        return HtmlTransformService.SerializeFragment(root);
-    }
+        html ??= string.Empty;
 
+        // Parse as a fragment instead of a full document
+        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
+        var body = doc.Body!;
+
+        foreach (var el in body.QuerySelectorAll("[data-puid]"))
+            el.RemoveAttribute("data-puid");
+
+        // Serialize the fragment (children of the synthetic <body>), preserving comments
+        return HtmlTransformService.SerializeFragment(body);
+    }
     /*
      * parameter:
      * {
