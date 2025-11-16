@@ -446,6 +446,7 @@ public static class HtmlTransformService
                 if (!string.Equals(justPersistPuids, snip.Html, StringComparison.Ordinal))
                 {
                     await state.SetSnippetHtml(justPersistPuids);
+                    state.Notify();
                 }
 
                 state.SelectSnippet(snippetId);
@@ -460,6 +461,7 @@ public static class HtmlTransformService
         if (!string.Equals(newHtml, snip.Html, StringComparison.Ordinal))
         {
             await state.SetSnippetHtml(newHtml, isRawFromEditor: false);
+            state.Notify();
         }
         
         state.SelectSnippet(snippetId);

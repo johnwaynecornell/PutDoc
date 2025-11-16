@@ -1080,19 +1080,28 @@ public class PutDocState
 
     public Func<string, Task<bool>>? Goto;
     
-    public async Task BeginFragmentEdit(Guid snippetId, string puid, FragmentScope scope = FragmentScope.Inner)
+    public async Task<bool> BeginFragmentEdit(Guid snippetId, string puid, FragmentScope scope = FragmentScope.Inner)
     {
        CancelSelectionEdit();
 
         var page = CurrentPage();
-        if (page is null) return;
+        if (page is null) return false;
         var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
-        if (snip is null) return;
+        if (snip is null) return false;
 
         var fragHtml = scope == FragmentScope.Outer
             ? await HtmlTransformService.ExtractFragmentOuterByPuidAsync(snip.Html ?? "", puid)
             : await HtmlTransformService.ExtractFragmentInnerByPuidAsync(snip.Html ?? "", puid);
 
+        if (fragHtml is null)
+        {
+            
+            SelectSnippet(snippetId);
+            Notify();
+            return false;
+            
+        }
+        
         Selection.IsActive = true;
         Selection.SnippetId = snippetId;
         Selection.Selector = puid;
@@ -1102,6 +1111,8 @@ public class PutDocState
         SelectedSnippetId = snippetId;
         ContentVersion++;
         Notify();
+        
+        return true;
     }
 
     public async Task SetSelectionScope(FragmentScope scope)
