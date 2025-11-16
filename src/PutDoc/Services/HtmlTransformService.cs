@@ -202,6 +202,12 @@ public static class HtmlTransformService
         return list;
     }
 
+    public static async Task<IElement> GetHtmlAsElement(string html)
+    {
+        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + (html ?? string.Empty) + "</body>"));
+        return doc.Body ?? throw new InvalidOperationException("AngleSharp produced a document without a <body> element.");
+    }
+    
     static string SerializeFragmentWithPrePassthrough(INode root,
         IMarkupFormatter fmt, IReadOnlyDictionary<string,string> preMap)
     {
@@ -238,9 +244,8 @@ public static class HtmlTransformService
     // Add an optional knob; default = keep explicit end tags.
     public static async Task<string> CondenseAsync(string html, bool keepOptionalEndTags = true)
     {
-        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
-        var root = doc.Body ?? doc.DocumentElement;
-
+        var root = await HtmlTransformService.GetHtmlAsElement(html);
+        
         // Capture raw <pre> bytes but don't replace them
         var shields = CapturePreBlocks(root);
         var preMap  = shields.ToDictionary(s => s.Id, s => s.RawOuterHtml);
@@ -258,12 +263,10 @@ public static class HtmlTransformService
         // Single-pass serialization with <pre> passthrough
         return SerializeFragmentWithPrePassthrough(root, fmt, preMap);
     }
-
+    
     public static async Task<string> BeautifyAsync(string html)
     {
-        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
-        var root = doc.Body ?? doc.DocumentElement;
-
+        var root = await HtmlTransformService.GetHtmlAsElement(html);
         var shields = CapturePreBlocks(root);
         var preMap  = shields.ToDictionary(s => s.Id, s => s.RawOuterHtml);
 
@@ -321,9 +324,8 @@ public static class HtmlTransformService
 
     public static async Task<string> FreshenPuids(string html)
     {
-        var doc = await Ctx.OpenAsync(req => req.Content(html ?? ""));
-        var root = doc.Body!;
-
+        var root = await HtmlTransformService.GetHtmlAsElement(html);
+        
         foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
         {
             if (el.HasAttribute("data-puid")) el.RemoveAttribute("data-puid");
@@ -342,9 +344,7 @@ public static class HtmlTransformService
         var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
         if (snip is null) return null;
 
-        var doc = await Ctx.OpenAsync(req => req.Content(snip.Html ?? ""));
-        var root = doc.Body!;
-
+        var root = await HtmlTransformService.GetHtmlAsElement(snip.Html);
         // Ensure actionable elements at least have *some* puid (for future)
         foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
             EnsurePuid(el);
@@ -360,10 +360,9 @@ public static class HtmlTransformService
         state.SelectSnippet(snippetId);
         var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
         if (snip is null) return;
-
-        var doc = await Ctx.OpenAsync(req => req.Content(snip.Html ?? ""));
-        var root = doc.Body!;
-
+        
+        var root = await HtmlTransformService.GetHtmlAsElement(snip.Html);
+        
         // Ensure actionable elements at least have *some* puid (for future)
         foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
             EnsurePuid(el);
@@ -394,9 +393,7 @@ public static class HtmlTransformService
         var snip = page.Snippets.FirstOrDefault(s => s.Id == snippetId);
         if (snip is null) return false;
 
-        var doc = await Ctx.OpenAsync(req => req.Content(snip.Html ?? ""));
-        var root = doc.Body!;
-
+        var root = await HtmlTransformService.GetHtmlAsElement(snip.Html);
         // Ensure actionable elements at least have *some* puid (for future)
         foreach (var el in root.QuerySelectorAll(HtmlPuid.query))
             EnsurePuid(el);
@@ -471,16 +468,16 @@ public static class HtmlTransformService
 
     public static async Task<string?> ExtractFragmentInnerByPuidAsync(string html, string puid)
     {
-        var doc = await Ctx.OpenAsync(req => req.Content(html));
-        var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
-        return el?.InnerHtml.Trim();
+        var root = await HtmlTransformService.GetHtmlAsElement(html);
+        var el = root.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+        return el?.InnerHtml;
     }
 
     public static async Task<string?> ExtractFragmentOuterByPuidAsync(string html, string puid)
     {
-        var doc = await Ctx.OpenAsync(req => req.Content(html));
-        var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
-        return el?.OuterHtml.Trim();
+        var root = await HtmlTransformService.GetHtmlAsElement(html);
+        var el = root.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+        return el?.OuterHtml;
     }
 
     /// <summary>
@@ -490,8 +487,8 @@ public static class HtmlTransformService
     public static async Task<string?> ReplaceFragmentByPuidAsync(
         string html, string puid, string replacement, bool replaceOuter)
     {
-        var doc = await Ctx.OpenAsync(req => req.Content(html));
-        var el = doc.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
+        var root = await HtmlTransformService.GetHtmlAsElement(html);
+        var el = root.QuerySelector($"[data-puid=\"{puid}\"]") as IElement;
         if (el is null) return null;
 
         if (replaceOuter)
@@ -526,8 +523,7 @@ public static class HtmlTransformService
             // Inner replace (simple path)
             el.InnerHtml = replacement ?? string.Empty;
         }
-
-        var root = doc.Body ?? doc.DocumentElement;
+        
         return SerializeFragment(root);
     }
 

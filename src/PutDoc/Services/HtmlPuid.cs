@@ -21,8 +21,8 @@ public static class HtmlPuid
 
     public static async Task<string> EnsurePuidsAsync(string html)
     {
-        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
-        var root = doc.Body!;
+        
+        var root = await HtmlTransformService.GetHtmlAsElement(html);
         
         foreach (var el in root.QuerySelectorAll(query))
             EnsurePuid(el);
@@ -35,9 +35,8 @@ public static class HtmlPuid
         html ??= string.Empty;
 
         // Parse as a fragment instead of a full document
-        var doc = await Ctx.OpenAsync(r => r.Content("<body>" + html + "</body>"));
-        var body = doc.Body!;
-
+        var body = await HtmlTransformService.GetHtmlAsElement(html);
+        
         foreach (var el in body.QuerySelectorAll("[data-puid]"))
             el.RemoveAttribute("data-puid");
 
