@@ -167,7 +167,7 @@
         <div style="display:flex; gap:.5rem; justify-content:flex-end;">
             <button type="button" class="btn" @onclick="ConfirmCancel">Cancel</button>
             <button type="button" class="btn" @onclick="ConfirmDiscard">Discard</button>
-            <button type="button" class="btn primary" @onclick="ConfirmSave" disabled="@_isFrozen">Save</button>
+            <button type="button" class="btn primary" @onclick="ConfirmSave" disabled="@State.IsReadOnly">Save</button>
         </div>
     </div>
 }

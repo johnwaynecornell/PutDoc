@@ -256,13 +256,13 @@ public class PutDocState
                 return false;
 
             case ContextChangeDecision.Discard:
-                ClearFrozen?.Invoke();
                 return true;
 
             case ContextChangeDecision.Save:
                 // If editor is frozen, treat like cancel (your modal already disables Save in that case).
                 return !IsDirty; // only proceed if save cleared dirty
             case ContextChangeDecision.Proceed:
+                return true;
             default:
                 return true;
         }
