@@ -1136,7 +1136,7 @@
         function preclean(container) {
             // Remove wrapper rows that lost their block child (root cause of “mystery toolbars”)
             container.querySelectorAll('.pd-row-wrap').forEach(wrap => {
-                const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre, :scope > svg, :scope > table, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5');
+                const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre, :scope > svg, :scope > table, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > a');
                 if (!hasBlock) wrap.remove();
             });
 
@@ -1267,6 +1267,17 @@
             }
             ensureToolbar(li, snippetId, puid, 'li');
         }
+
+        function hasAnchorAncestor(el) {
+            let cur = el?.parentElement;
+            while (cur) {
+                if (cur.tagName && cur.tagName.toLowerCase() === 'a') {
+                    return true;
+                }
+                cur = cur.parentElement;
+            }
+            return false;
+        }
         
         function enhance(container, snippetId) {
             
@@ -1275,25 +1286,33 @@
                 preclean(container);
 
                 // Pass 1: whole-block hosts
-                container.querySelectorAll('ul, ol, pre, svg, table, h1, h2, h3, h4, h5').forEach(el => {
+                container.querySelectorAll('ul, ol, pre, svg, table, h1, h2, h3, h4, h5, a').forEach(el => {
+                    if (hasAnchorAncestor(el)) return;
+                    
                     const puid = ensurePuid(el);
                     wrapBlockWithToolbar(el, snippetId, puid);
                 });
 
                 // Pass 2: list items
                 container.querySelectorAll('li').forEach(li => {
+                    if (hasAnchorAncestor(li)) return;
+                    
                     const puid = ensurePuid(li);
                     ensureLiRow(li, snippetId, puid);
                 });
 
                 // Pass 3: other host types (card/brick/prompt)
                 container.querySelectorAll('.slf-card, .slf-brick, .prompt_area').forEach(el => {
+                    if (hasAnchorAncestor(el)) return;
+                    
                     const puid = ensurePuid(el);
                     const kind = (el.classList[0] || el.tagName.toLowerCase());
                     ensureToolbar(el, snippetId, puid, kind);
                 });
 
                 container.querySelectorAll('p').forEach(el => {
+                    if (hasAnchorAncestor(el)) return;
+                    
                     const puid = ensurePuid(el);
                     const kind = el.tagName.toLowerCase();
                     ensureToolbar(el, snippetId, puid, kind);
@@ -1470,7 +1489,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-14-B]";
+        return "putdoc.js [2025-11-24-A]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
