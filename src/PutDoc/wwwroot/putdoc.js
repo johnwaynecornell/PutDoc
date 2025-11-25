@@ -1214,6 +1214,8 @@
             applyScopeAttr(wrap);
             wrap.className = 'pd-row-wrap';
             wrap.dataset.forPuid = puid;
+            wrap.dataset.kind = kind;   // 👈 identify what we wrapped (ul/ol/pre/a/...)
+
             blockEl.replaceWith(wrap);
             wrap.appendChild(blockEl);
 
@@ -1489,7 +1491,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-24-A]";
+        return "putdoc.js [2025-11-25-A]";
     }
     
     console.log(window.getTimeStamp() + " loaded");

@@ -328,6 +328,16 @@ else
         margin-bottom: .35rem;    /* a little air above the list/pre */
     }
 
+    /* 👇 Special case: 'a' hosts should behave inline when toolbar is closed */
+    .pd-row-wrap[data-kind="a"] {
+        display: inline;                 /* sit inline with surrounding text */
+        align-items: baseline;
+    }
+
+    /* When the toolbar on an 'a' is OPEN → treat as block row */
+    .pd-row-wrap[data-kind="a"]:has(> putdoc-toolbar .pd-inline-toolbar[data-open="true"]) {
+        display: block;
+    }
 
     /* make the content block establish a new BFC next to the float */
     li > .pd-row {
