@@ -208,38 +208,40 @@ public static class HtmlTransformService
         return doc.Body ?? throw new InvalidOperationException("AngleSharp produced a document without a <body> element.");
     }
     
-    static string SerializeFragmentWithPrePassthrough(INode root,
+    static async Task<string> SerializeFragmentWithPrePassthrough(INode root,
         IMarkupFormatter fmt, IReadOnlyDictionary<string,string> preMap)
     {
-        var sb = new System.Text.StringBuilder();
+        var pretty = root.ToHtml(fmt);
 
-        void WriteNode(INode n)
+        var prettyRoot = await HtmlTransformService.GetHtmlAsElement(pretty);
+        
+        var preserveNodes = prettyRoot.Owner.QuerySelectorAll("[data-preserve-pre]").ToArray();
+
+        foreach (var node in preserveNodes)
         {
-            if (n is IElement el &&
-                el.LocalName.Equals("pre", StringComparison.OrdinalIgnoreCase) &&
-                el.HasAttribute("data-preserve-pre"))
-            {
-                var id = el.GetAttribute("data-preserve-pre")!;
-                if (preMap.TryGetValue(id, out var raw))
-                {
-                    sb.Append(raw);        // emit captured raw HTML
-                    return;                // IMPORTANT: skip walking children
-                }
-            }
-            sb.Append(n.ToHtml(fmt));
+            if (node is not IElement el)
+                continue;
+
+            var id = el.GetAttribute("data-preserve-pre");
+            if (string.IsNullOrEmpty(id))
+                continue;
+
+            if (!preMap.TryGetValue(id, out var rawOuter))
+                continue;
+
+            // Replace this element with the raw HTML we captured earlier.
+            //
+            // We do this at string level to keep AngleSharp from re-pretty-printing
+            // the inner whitespace of the <pre> block.
+            //
+            var parent = el.Parent;
+            if (parent is null)
+                continue;
+
+            node.OuterHtml = rawOuter;
         }
-
-        foreach (var child in root.ChildNodes)
-            WriteNode(child);
-
-        var html = sb.ToString();
-        html = System.Text.RegularExpressions.Regex.Replace(
-            html,
-            @"\s*data-preserve-pre=""[^""]*""",
-            string.Empty,
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-        return html;
+        
+        return prettyRoot.InnerHtml;
     }
     // Add an optional knob; default = keep explicit end tags.
     public static async Task<string> CondenseAsync(string html, bool keepOptionalEndTags = true)
@@ -261,7 +263,7 @@ public static class HtmlTransformService
             : new MinifyMarkupFormatter();
 
         // Single-pass serialization with <pre> passthrough
-        return SerializeFragmentWithPrePassthrough(root, fmt, preMap);
+        return await SerializeFragmentWithPrePassthrough(root, fmt, preMap);
     }
     
     public static async Task<string> BeautifyAsync(string html)
@@ -274,7 +276,7 @@ public static class HtmlTransformService
         CondenseWhitespace(root);
 
         var pretty = new PrettyMarkupFormatter { Indentation = "  ", NewLine = "\n" };
-        return SerializeFragmentWithPrePassthrough(root, pretty, preMap);
+        return await SerializeFragmentWithPrePassthrough(root, pretty, preMap);
     }
 
 
