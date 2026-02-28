@@ -33,6 +33,7 @@
         <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("list")'>+ list</button>
         <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => InsertTpl("p")'>+ paragraph</button>
         <span class="sep" style="border-left:1px solid #ddd; height:1.25rem;"></span>
+        <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => PasteTimestamp()'>🕑</button>
         <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => PasteHtml()'>Paste Rich</button>
         <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => Beautify()'>Beautify</button>
         <button type="button" class="btn" disabled="@(State.IsReadOnly)" @onclick='() => Condense()'>Condense</button>
@@ -777,6 +778,18 @@
         RedoClear();
     }
 
+    private async Task PasteTimestamp()
+    {
+        string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        await JS.InvokeVoidAsync("putdocText.insertAtCaret", _ta, stamp);
+
+        _saveState = SaveState.Typing;
+        State.MarkDirty();
+        StartDebounce();
+        RedoClear();
+    }
+
+    
     private async Task PasteHtml()
     {
         string? html = await JS.InvokeAsync<string?>("putdoc.readClipboardHtmlOrNull");
