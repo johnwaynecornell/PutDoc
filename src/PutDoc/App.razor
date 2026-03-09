@@ -26,6 +26,23 @@
     </NotFound>
 </Router>
 
+<script>
+  window.MathJax = {
+    tex: {
+        displayMath: [['$$', '$$'], ['\\[', '\\]']], 
+        inlineMath: [['$', '$'], ['\\(', '\\)']]
+    },
+    options: {
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'mjx-container']
+    },
+    svg: {
+        fontCache: 'global'
+    }
+  };
+</script>
+
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-svg.js"></script>
+
 <script src="/putdoc.js"></script>
 <script src="/_framework/blazor.web.js"  autostart="false"></script>
 

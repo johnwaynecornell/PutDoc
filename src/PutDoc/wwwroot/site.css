@@ -126,3 +126,17 @@ code.inline_code{border:1px solid #333;}
 .slf-brick:hover{box-shadow:0 0 0 2px #e5e7eb}
 .slf-brick h3{margin-top:0}
 .slf-brick h4{margin:0.6rem 0 0.25rem}
+
+/* Force the equation container to stay together */
+mjx-container {
+    display: inline-block !important;
+    direction: ltr !important;
+    flex-direction: row !important; /* Fix for the "saboteur" flex-direction: column */
+}
+
+/* Ensure display math ($$) stays centered but doesn't break internally */
+mjx-container[display="true"] {
+    display: block !important;
+    margin: 1em auto !important;
+    text-align: center;
+}

@@ -243,6 +243,8 @@ else
         {
             await JS.InvokeVoidAsync("putdocEnh.markSelected", State.Selection.Selector);
         }
+        
+        await JS.InvokeVoidAsync("triggerMathJax");
     }
 }
 

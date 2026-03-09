@@ -1,4 +1,26 @@
 (function () {
+    window.triggerMathJax = () => {
+        if (window.MathJax && window.MathJax.typesetPromise) {
+            // Find all snippet containers in the WorkPane
+            const panes = document.querySelectorAll('.workpane-snippet');
+            if (panes.length > 0) {
+                const elements = Array.from(panes);
+                
+                // Remove any existing MathJax containers to prevent "ghosts"
+                // and avoid re-processing generated SVG output.
+                elements.forEach(el => {
+                   el.querySelectorAll('mjx-container').forEach(mjx => mjx.remove());
+                });
+
+                window.MathJax.typesetClear(elements);
+                window.MathJax.typesetPromise(elements).catch((err) => console.log('MathJax error: ', err));
+            } else {
+                // Fallback for other pages if they exist
+                window.MathJax.typesetPromise().catch((err) => console.log('MathJax error: ', err));
+            }
+        }
+    };
+    
     function uuid() {
         return 'p' + (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : (Date.now() + Math.random()).toString(36));
     }
@@ -1281,6 +1303,16 @@
             return false;
         }
         
+        function isMathJax(el) {
+            if (el.tagName && el.tagName.toLowerCase() === 'mjx-container') return true;
+            let cur = el.parentElement;
+            while (cur) {
+                if (cur.tagName && cur.tagName.toLowerCase() === 'mjx-container') return true;
+                cur = cur.parentElement;
+            }
+            return false;
+        }
+        
         function enhance(container, snippetId) {
             
             if (!container) return;
@@ -1290,6 +1322,7 @@
                 // Pass 1: whole-block hosts
                 container.querySelectorAll('ul, ol, pre, svg, table, h1, h2, h3, h4, h5, a').forEach(el => {
                     if (hasAnchorAncestor(el)) return;
+                    if (isMathJax(el)) return;
                     
                     const puid = ensurePuid(el);
                     wrapBlockWithToolbar(el, snippetId, puid);
@@ -1298,6 +1331,7 @@
                 // Pass 2: list items
                 container.querySelectorAll('li').forEach(li => {
                     if (hasAnchorAncestor(li)) return;
+                    if (isMathJax(li)) return;
                     
                     const puid = ensurePuid(li);
                     ensureLiRow(li, snippetId, puid);
@@ -1306,6 +1340,7 @@
                 // Pass 3: other host types (card/brick/prompt)
                 container.querySelectorAll('.slf-card, .slf-brick, .prompt_area').forEach(el => {
                     if (hasAnchorAncestor(el)) return;
+                    if (isMathJax(el)) return;
                     
                     const puid = ensurePuid(el);
                     const kind = (el.classList[0] || el.tagName.toLowerCase());
@@ -1314,6 +1349,7 @@
 
                 container.querySelectorAll('p').forEach(el => {
                     if (hasAnchorAncestor(el)) return;
+                    if (isMathJax(el)) return;
                     
                     const puid = ensurePuid(el);
                     const kind = el.tagName.toLowerCase();
@@ -1491,7 +1527,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2025-11-25-A]";
+        return "putdoc.js [2026-03-09-I]";
     }
     
     console.log(window.getTimeStamp() + " loaded");
