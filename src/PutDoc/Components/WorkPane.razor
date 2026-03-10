@@ -28,7 +28,10 @@
                 <div class="workpane-snippet"
                      id="@($"snip-{snip.Id}")"
                      data-snippet-id="@snip.Id">
-                    @((MarkupString)(snip.Html ?? ""))
+                    <div class="sentry"></div>
+                    <div class="workpane-content">
+                        @((MarkupString)(snip.Html ?? ""))
+                    </div>
                 </div>
             </div>
 
@@ -244,6 +247,7 @@ else
             await JS.InvokeVoidAsync("putdocEnh.markSelected", State.Selection.Selector);
         }
         
+        // await JS.InvokeVoidAsync("triggerMathJax");
         await JS.InvokeVoidAsync("triggerMathJax");
     }
 }

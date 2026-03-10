@@ -77,8 +77,49 @@ public static class HtmlTransformService
         "ol","p","pre","section","table","thead","tbody","tfoot","tr","td","th","ul"
     };
 
-    static bool IsInlineNode(INode? n) =>
+    public static bool IsInlineNode(INode? n) =>
         n is IText || (n as IElement) is { } e && InlineTags.Contains(e.LocalName);
+
+    public static void EnsureTopLevelBlocks(IElement root)
+    {
+        var children = root.ChildNodes.ToList();
+        List<INode> consecutiveOrphans = new();
+        
+        void WrapOrphans()
+        {
+            if (consecutiveOrphans.Count == 0) return;
+            
+            // Ignore if all orphans are whitespace-only
+            if (consecutiveOrphans.All(n => n is IText t && string.IsNullOrWhiteSpace(t.TextContent)))
+            {
+                consecutiveOrphans.Clear();
+                return;
+            }
+
+            var p = root.Owner.CreateElement("p");
+            var first = consecutiveOrphans[0];
+            root.InsertBefore(p, first);
+            
+            foreach (var orphan in consecutiveOrphans)
+            {
+                p.AppendChild(orphan);
+            }
+            consecutiveOrphans.Clear();
+        }
+
+        foreach (var node in children)
+        {
+            if (IsInlineNode(node))
+            {
+                consecutiveOrphans.Add(node);
+            }
+            else
+            {
+                WrapOrphans();
+            }
+        }
+        WrapOrphans();
+    }
 
     static bool IsBlockNode(INode? n) =>
         (n as IElement) is { } e && BlockTags.Contains(e.LocalName);

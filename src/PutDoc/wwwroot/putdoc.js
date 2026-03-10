@@ -1,23 +1,117 @@
 (function () {
-    window.triggerMathJax = () => {
+    window.triggerMathJax = (target) => {
         if (window.MathJax && window.MathJax.typesetPromise) {
-            // Find all snippet containers in the WorkPane
-            const panes = document.querySelectorAll('.workpane-snippet');
-            if (panes.length > 0) {
-                const elements = Array.from(panes);
-                
-                // Remove any existing MathJax containers to prevent "ghosts"
-                // and avoid re-processing generated SVG output.
-                elements.forEach(el => {
-                   el.querySelectorAll('mjx-container').forEach(mjx => mjx.remove());
-                });
+            // Debounce to prevent hanging during rapid typing
+            if (window._pdMathJaxTimeout) clearTimeout(window._pdMathJaxTimeout);
+            window._pdMathJaxTimeout = setTimeout(() => {
+                const elements = target ? (Array.isArray(target) ? target : [target]) : Array.from(document.querySelectorAll('.workpane-snippet'));
 
-                window.MathJax.typesetClear(elements);
-                window.MathJax.typesetPromise(elements).catch((err) => console.log('MathJax error: ', err));
-            } else {
-                // Fallback for other pages if they exist
-                window.MathJax.typesetPromise().catch((err) => console.log('MathJax error: ', err));
-            }
+                if (elements.length > 0) {
+                    // Filter out elements already being processed
+                    const toProcess = elements.filter(el => !el._pdMathJaxInProgress);
+                    if (toProcess.length === 0) return;
+
+                    toProcess.forEach(el => {
+                        el._pdMathJaxInProgress = true;
+                        
+                        // CLEANUP GHOSTS (REMOVE INSTEAD OF HIDE FOR CLEANLINESS)
+                        try {
+                            const content = el.querySelector('.workpane-content');
+                            const sentry = el.querySelector('.sentry');
+                            
+                            // 1. Remove ANY mjx-container that is NOT inside the intended content wrapper.
+                            const allMjxInSnippet = Array.from(el.querySelectorAll('mjx-container'));
+                            allMjxInSnippet.forEach(mjx => {
+                                if (!content || !content.contains(mjx)) {
+                                    try { mjx.remove(); } catch(e) {}
+                                }
+                            });
+
+                            // 2. Remove element ghosts preceding the sentry
+                            if (sentry) {
+                                let sibling = el.firstChild;
+                                while (sibling && sibling !== sentry) {
+                                    const next = sibling.nextSibling;
+                                    // Remove Element nodes (they are definitely ghosts here)
+                                    if (sibling.nodeType === 1) { 
+                                        if (!sibling.classList.contains('sentry')) {
+                                            try { sibling.remove(); } catch(e) {}
+                                        }
+                                    }
+                                    // We leave text nodes alone to avoid disrupting Blazor's node tracking
+                                    sibling = next;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('MathJax ghost-cleanup failed:', e);
+                        }
+                    });
+
+                    // Target ONLY the content container sub-elements
+                    const subElements = [];
+                    toProcess.forEach(el => {
+                        const content = el.querySelector('.workpane-content');
+                        if (content) {
+                            // We only typeset what is NOT already rendered or is part of a fresh update
+                            subElements.push(content);
+                        }
+                    });
+
+                    if (subElements.length > 0) {
+                        // Mark as rendering BEFORE promise
+                        subElements.forEach(s => s.setAttribute('data-pd-mathjax-rendering', 'true'));
+                        
+                        // NEW STRATEGY: Render in a shadow/proxy container to avoid live DOM mutations
+                        // that confuse Blazor's Virtual DOM.
+                        subElements.forEach(s => {
+                            try {
+                                // Find all MJX containers already in this content and mark them as "old"
+                                s.querySelectorAll('mjx-container').forEach(m => m.setAttribute('data-pd-old-mjx', 'true'));
+                            } catch (e) {}
+                        });
+
+                        window.MathJax.typesetPromise(subElements).then(() => {
+                            subElements.forEach(s => {
+                                s.removeAttribute('data-pd-mathjax-rendering');
+                                s.setAttribute('data-pd-mathjax-done', 'true');
+                                
+                                // SHUTTLE: Top-level rendered MathJax output should have an outer element (p/div).
+                                // If it's a direct child of 's', we shuttle it into a div.
+                                // This addresses the "no outer element" issue found by the user.
+                                Array.from(s.children).forEach(child => {
+                                    if (child.tagName.toLowerCase() === 'mjx-container' && !child.hasAttribute('data-mjx-ignore')) {
+                                        try {
+                                            const wrapper = document.createElement('div');
+                                            wrapper.className = 'pd-mathjax-block-shuttle';
+                                            wrapper.setAttribute('data-mjx-ignore', 'true');
+                                            child.replaceWith(wrapper);
+                                            wrapper.appendChild(child);
+                                        } catch(e) {}
+                                    }
+                                });
+
+                                s.querySelectorAll('mjx-container:not([data-mjx-ignore])').forEach(m => {
+                                    m.setAttribute('data-mjx-ignore', 'true');
+                                    m.setAttribute('data-pd-rendered', 'true');
+                                });
+                            });
+                            toProcess.forEach(el => {
+                                el._pdMathJaxInProgress = false;
+                            });
+                        }).catch((err) => {
+                            subElements.forEach(s => s.removeAttribute('data-pd-mathjax-rendering'));
+                            toProcess.forEach(el => {
+                                el._pdMathJaxInProgress = false;
+                            });
+                            console.warn('MathJax promise error: ', err);
+                        });
+                    } else {
+                        toProcess.forEach(el => {
+                            el._pdMathJaxInProgress = false;
+                        });
+                    }
+                }
+            }, 100); // 100ms debounce
         }
     };
     
@@ -1139,12 +1233,30 @@
             if (!container || container.__pdObserved) return;
             container.__pdObserved = true;
 
-            const mo = new MutationObserver(() => {
+            const mo = new MutationObserver((mutations) => {
+                // If all mutations are within MathJax elements, ignore them
+                const meaningful = mutations.some(m => {
+                    if (m.target && isMathJax(m.target)) return false;
+                    if (m.addedNodes) {
+                        for (const n of m.addedNodes) {
+                            if (!isMathJax(n)) return true;
+                        }
+                    }
+                    if (m.removedNodes) {
+                        for (const n of m.removedNodes) {
+                            if (!isMathJax(n)) return true;
+                        }
+                    }
+                    return m.type === 'characterData' || m.type === 'childList';
+                });
+                
+                if (!meaningful) return;
+
                 mo.disconnect();
                 try { enhance(container, snippetId); }
-                finally { mo.observe(container, { childList: true, subtree: true }); }
+                finally { mo.observe(container, { childList: true, subtree: true, characterData: true }); }
             });
-            mo.observe(container, { childList: true, subtree: true });
+            mo.observe(container, { childList: true, subtree: true, characterData: true });
             enhance(container, snippetId);
             return mo;
         }
@@ -1156,27 +1268,44 @@
         }
 
         function preclean(container) {
-            // Remove wrapper rows that lost their block child (root cause of “mystery toolbars”)
+            // Hide wrapper rows instead of removing them
             container.querySelectorAll('.pd-row-wrap').forEach(wrap => {
+                if (isMathJax(wrap)) return;
                 const hasBlock = wrap.querySelector(':scope > ul, :scope > ol, :scope > pre, :scope > svg, :scope > table, :scope > h1, :scope > h2, :scope > h3, :scope > h4, :scope > h5, :scope > a');
-                if (!hasBlock) wrap.remove();
+                if (hasBlock && isMathJax(hasBlock)) return;
+                
+                if (!hasBlock) {
+                    try { 
+                        wrap.style.display = 'none'; 
+                        wrap.classList.add('pd-stray-wrap'); // marker
+                    } catch(e) {}
+                }
             });
 
-            // Remove stray toolbars sitting at the snippet root that no longer have a legit owner
+            // Hide stray toolbars sitting at the snippet root that no longer have a legit owner
             container.querySelectorAll(':scope > putdoc-toolbar').forEach(tb => {
+                if (isMathJax(tb)) return;
                 const puid = tb.dataset.ownerPuid || tb.getAttribute('puid') || '';
-                if (!puid) { tb.remove(); return; }
+                if (!puid) { 
+                    try { tb.style.display = 'none'; } catch(e) {}
+                    return; 
+                }
                 const stillHasHost =
                     container.querySelector(`.pd-row-wrap[data-for-puid="${puid}"]`) ||
                     container.querySelector(`li[data-puid="${puid}"]`) ||
                     container.querySelector(`[data-puid="${puid}"]`);
-                if (!stillHasHost) tb.remove();
+                if (!stillHasHost) {
+                    try { tb.style.display = 'none'; } catch(e) {}
+                }
             });
 
-            // Guard against duplicate LI gears: only one direct toolbar per <li>
+            // Guard against duplicate LI gears: only one visible toolbar per <li>
             container.querySelectorAll('li, p').forEach(li => {
-                const toolbars = li.querySelectorAll(':scope > putdoc-toolbar');
-                for (let i = 1; i < toolbars.length; i++) toolbars[i].remove();
+                if (isMathJax(li)) return;
+                const toolbars = Array.from(li.querySelectorAll(':scope > putdoc-toolbar')).filter(t => t.style.display !== 'none');
+                for (let i = 1; i < toolbars.length; i++) {
+                    try { toolbars[i].style.display = 'none'; } catch(e) {}
+                }
             });
         }
 
@@ -1222,6 +1351,7 @@
         
         
         function wrapBlockWithToolbar(blockEl, snippetId, puid) {
+            if (isMathJax(blockEl)) return null;
             const kind = blockEl.tagName.toLowerCase();
 
             // Already wrapped for this puid?
@@ -1231,18 +1361,11 @@
                 return parent; // wrapper is host
             }
             
-            // Fresh wrapper (atomic)
-            const wrap = document.createElement('div');
-            applyScopeAttr(wrap);
-            wrap.className = 'pd-row-wrap';
-            wrap.dataset.forPuid = puid;
-            wrap.dataset.kind = kind;   // 👈 identify what we wrapped (ul/ol/pre/a/...)
-
-            blockEl.replaceWith(wrap);
-            wrap.appendChild(blockEl);
-
-            ensureToolbar(wrap, snippetId, puid, kind);
-            return wrap; // wrapper is host
+            // To avoid the "removeChild" error, we must avoid structural changes to nodes Blazor owns.
+            // INSTEAD of wrapping, we will prepend the toolbar to the block element if it supports children,
+            // or insert it before it.
+            ensureToolbar(blockEl, snippetId, puid, kind);
+            return blockEl;
         }
         
         
@@ -1261,8 +1384,10 @@
             applyScopeAttr(wrap);
             wrap.className = 'pd-row-wrap';
             wrap.dataset.forPuid = puid;
-            listEl.replaceWith(wrap);
-            wrap.appendChild(listEl);
+            try {
+                listEl.replaceWith(wrap);
+                wrap.appendChild(listEl);
+            } catch(e) { console.warn('Failed to wrap block with toolbar 2:', e); }
 
             ensureToolbar(wrap, snippetId, puid, kind);
             return wrap; // wrapper is host
@@ -1270,25 +1395,8 @@
 
         
         function ensureLiRow(li, snippetId, puid) {
-            let row = li.querySelector(':scope > .pd-row');
-            if (!row) {
-                row = document.createElement('div');
-                applyScopeAttr(row);
-                
-                row.className = 'pd-row';
-                // move all children (except any existing toolbar) into a body
-                const body = document.createElement('div'); 
-                applyScopeAttr(body);
-                
-                body.className = 'pd-body';
-                for (let n = li.firstChild; n; ) {
-                    const next = n.nextSibling;
-                    if (!(n.nodeType === 1 && n.tagName === 'PUTDOC-TOOLBAR')) body.appendChild(n);
-                    n = next;
-                }
-                li.appendChild(row);
-                row.appendChild(body);
-            }
+            // DEPRECATED: Moving nodes causes removeChild errors in Blazor.
+            // We just ensure a toolbar is present on the LI.
             ensureToolbar(li, snippetId, puid, 'li');
         }
 
@@ -1303,24 +1411,52 @@
             return false;
         }
         
-        function isMathJax(el) {
-            if (el.tagName && el.tagName.toLowerCase() === 'mjx-container') return true;
-            let cur = el.parentElement;
-            while (cur) {
-                if (cur.tagName && cur.tagName.toLowerCase() === 'mjx-container') return true;
-                cur = cur.parentElement;
-            }
-            return false;
+    function isMathJax(el) {
+        if (!el) return false;
+        
+        // If it's explicitly marked to be ignored by MathJax or our ghost logic
+        if (el.nodeType === 1 && (el.hasAttribute('data-mjx-ignore') || el.hasAttribute('data-pd-rendered') || el.hasAttribute('data-pd-mathjax-rendering'))) return true;
+
+        if (el.nodeType === 1 && el.tagName) {
+            const tag = el.tagName.toLowerCase();
+            if (tag === 'mjx-container' || tag.startsWith('mjx-')) return true;
+            if (el.classList.contains('MathJax_SVG') || el.classList.contains('mjx-chtml') || el.classList.contains('mjx-svg')) return true;
+            if (el.hasAttribute('data-mjx-texclass') || el.hasAttribute('data-mjx-base-node')) return true;
+            
+            // Efficient check for ancestors
+            if (el.closest && (el.closest('mjx-container') || el.closest('.MathJax_SVG') || el.closest('.mjx-chtml') || el.closest('.mjx-svg') || el.closest('[data-mjx-ignore]'))) return true;
+            
+            // ALSO check for our own ghost markers
+            if (el.classList.contains('pd-mathjax-ghost') || el.classList.contains('pd-sentry-ghost') || el.classList.contains('pd-text-ghost')) return true;
         }
         
+        if (el.nodeType === 3) { // Text node
+            const parent = el.parentElement;
+            if (parent && isMathJax(parent)) return true;
+        }
+        
+        // NEW: If the element is outside .workpane-content but inside .workpane-snippet,
+        // it's likely a ghost or a sentry, and we should treat it as "don't enhance".
+        if (el.nodeType === 1 && el.closest && el.closest('.workpane-snippet')) {
+            const snippet = el.closest('.workpane-snippet');
+            const content = snippet.querySelector('.workpane-content');
+            if (content && !content.contains(el) && el !== content) {
+                return true; // Treat as "hands off"
+            }
+            // Sentry itself is protected
+            if (el.classList.contains('sentry')) return true;
+        }
+        
+        return false;
+    }
+        
         function enhance(container, snippetId) {
-            
             if (!container) return;
             withGuard(container, () => {
                 preclean(container);
 
                 // Pass 1: whole-block hosts
-                container.querySelectorAll('ul, ol, pre, svg, table, h1, h2, h3, h4, h5, a').forEach(el => {
+                container.querySelectorAll('.workpane-content ul, .workpane-content ol, .workpane-content pre, .workpane-content svg, .workpane-content table, .workpane-content h1, .workpane-content h2, .workpane-content h3, .workpane-content h4, .workpane-content h5, .workpane-content a').forEach(el => {
                     if (hasAnchorAncestor(el)) return;
                     if (isMathJax(el)) return;
                     
@@ -1329,7 +1465,7 @@
                 });
 
                 // Pass 2: list items
-                container.querySelectorAll('li').forEach(li => {
+                container.querySelectorAll('.workpane-content li').forEach(li => {
                     if (hasAnchorAncestor(li)) return;
                     if (isMathJax(li)) return;
                     
@@ -1338,7 +1474,7 @@
                 });
 
                 // Pass 3: other host types (card/brick/prompt)
-                container.querySelectorAll('.slf-card, .slf-brick, .prompt_area').forEach(el => {
+                container.querySelectorAll('.workpane-content .slf-card, .workpane-content .slf-brick, .workpane-content .prompt_area').forEach(el => {
                     if (hasAnchorAncestor(el)) return;
                     if (isMathJax(el)) return;
                     
@@ -1347,7 +1483,7 @@
                     ensureToolbar(el, snippetId, puid, kind);
                 });
 
-                container.querySelectorAll('p').forEach(el => {
+                container.querySelectorAll('.workpane-content p').forEach(el => {
                     if (hasAnchorAncestor(el)) return;
                     if (isMathJax(el)) return;
                     
@@ -1355,8 +1491,17 @@
                     const kind = el.tagName.toLowerCase();
                     ensureToolbar(el, snippetId, puid, kind);
                 });
+
+                // Move MathJax trigger INSIDE withGuard but at the end.
+                // This ensures we're not starting a new enhancement while MathJax is doing its thing
+                // (although MathJax is async, the trigger itself should be guarded).
+                if (window.triggerMathJax) {
+                    window.triggerMathJax(container);
+                }
             });
         }
+        
+        const VERSION_STAMP = '2026-03-10-L';
 
 
 
@@ -1419,6 +1564,8 @@
             if (document.readyState !== 'loading') fn();
             else document.addEventListener('DOMContentLoaded', fn);
         }
+
+        window.getTimeStamp = () => "putdoc.js [" + VERSION_STAMP + "]";
 
         onReady(async () => {
             // Start Blazor once
@@ -1527,7 +1674,7 @@
 
     window.getTimeStamp = function ()
     {
-        return "putdoc.js [2026-03-09-I]";
+        return "putdoc.js [2026-03-10-M]";
     }
     
     console.log(window.getTimeStamp() + " loaded");

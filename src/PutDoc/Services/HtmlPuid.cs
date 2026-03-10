@@ -24,6 +24,10 @@ public static class HtmlPuid
         
         var root = await HtmlTransformService.GetHtmlAsElement(html);
         
+        // SHUTTLE/WRAP ORPHANS: Ensure all top-level content has an "outer element" (p/div).
+        // This solves the LaTeX "outer element" issue and improves Blazor Virtual DOM stability.
+        HtmlTransformService.EnsureTopLevelBlocks(root);
+        
         foreach (var el in root.QuerySelectorAll(query))
             EnsurePuid(el);
         // Serialize fragment
